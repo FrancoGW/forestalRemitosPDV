@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Base de datos SQLite
+backend/remitero.db
+backend/remitero.db-shm
+backend/remitero.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Variables de entorno (contienen secretos)
+backend/.env
+frontend/.env
+frontend/.env.production
+frontend/.env.local
+
+# Build outputs
+frontend/dist/
+backend/dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.local

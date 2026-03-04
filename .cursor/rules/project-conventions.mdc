@@ -1,0 +1,46 @@
+---
+description: Convenciones generales del proyecto Remitero Forestal
+alwaysApply: true
+---
+
+# Convenciones del Proyecto Remitero Forestal
+
+## Stack Tecnológico
+
+- **Backend**: Node.js + Express + better-sqlite3 + JWT + bcryptjs + cors
+- **Frontend**: React + TypeScript + Vite
+- **Estilos**: Mantine UI (`@mantine/core`) — NO usar Tailwind CSS ni CSS puro/módulos
+- **Mobile futuro**: El frontend debe ser compatible con Capacitor (iOS/Android)
+
+## Estilos
+
+- ❌ NUNCA usar Tailwind CSS
+- ❌ NUNCA usar CSS puro ni CSS Modules
+- ✅ Usar **Mantine UI** (`@mantine/core`, `@mantine/hooks`, `@mantine/form`) para todos los componentes y layouts
+- ✅ Para estilos puntuales usar el prop `style={{}}` o `sx={{}}` de Mantine
+
+## Estructura de carpetas
+
+```
+backend/src/
+  index.js
+  db.js
+  middleware/auth.js
+  routes/auth.js | pdv.js | remitos.js | catalogos.js
+
+frontend/src/
+  api/client.ts
+  contexts/AuthContext.tsx
+  components/   → componentes reutilizables con su .module.css
+  pages/        → superadmin/ y pdv/
+  styles/       → variables globales y reset
+```
+
+## Roles del sistema
+
+- `superadmin`: acceso completo — Panel, Puntos de Venta, Remitos
+- `pdv` (punto de venta): acceso restringido — Panel, Remitos propios
+
+## Idioma
+
+- Todo el código, comentarios, variables de UI y respuestas al usuario: **español**
