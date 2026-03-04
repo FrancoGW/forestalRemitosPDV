@@ -1,42 +1,109 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Title, Text, Stack, Button, Group, Paper, Divider,
-  Select, TextInput, NumberInput, Grid, Badge, Alert,
-  Skeleton, ActionIcon, Tooltip,
+  Title, Text, Stack, Button, Group, Paper,
+  Select, TextInput, NumberInput, Grid, Badge,
+  Skeleton, ActionIcon, Combobox, useCombobox, InputBase, ScrollArea,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconDeviceFloppy, IconSend, IconAlertCircle,
+  IconArrowLeft, IconDeviceFloppy, IconSend,
 } from '@tabler/icons-react';
 import api from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import 'dayjs/locale/es';
 
-interface Catalogos {
-  producto?: string[];
-  especie?: string[];
-  categoria?: string[];
-  sub_categoria?: string[];
-  balanza?: string[];
-}
+interface Opcion { id: number; nombre: string; [key: string]: any; }
 
 interface PDV { id: number; numero: number; nombre: string; }
 
 function SeccionTitulo({ titulo }: { titulo: string }) {
   return (
     <Text
-      size="xs"
-      fw={600}
-      c="dimmed"
-      mb="md"
+      size="xs" fw={600} c="dimmed" mb="md"
       style={{ textTransform: 'uppercase', letterSpacing: '0.07em' }}
     >
       {titulo}
     </Text>
   );
+}
+
+// Select con búsqueda inline para listas grandes (clientes, predios, camiones)
+function SelectBusqueda({
+  label, placeholder, data, value, onChange, required, error,
+}: {
+  label: string;
+  placeholder?: string;
+  data: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+  error?: string;
+}) {
+  const combobox = useCombobox({ onDropdownClose: () => combobox.resetSelectedOption() });
+  const [search, setSearch] = useState('');
+
+  const filtradas = data.filter((item) =>
+    (item.label ?? '').toLowerCase().includes(search.toLowerCase())
+  ).slice(0, 80);
+
+  const seleccionada = data.find((d) => d.value === value);
+
+  return (
+    <Combobox
+      store={combobox}
+      onOptionSubmit={(val) => {
+        onChange(val);
+        setSearch('');
+        combobox.closeDropdown();
+      }}
+    >
+      <Combobox.Target>
+        <InputBase
+          label={label}
+          placeholder={placeholder || 'Buscar...'}
+          required={required}
+          error={error}
+          value={combobox.dropdownOpened ? search : (seleccionada?.label ?? '')}
+          onChange={(e) => {
+            setSearch(e.currentTarget.value);
+            combobox.openDropdown();
+            combobox.updateSelectedOptionIndex();
+          }}
+          onClick={() => combobox.openDropdown()}
+          onFocus={() => { combobox.openDropdown(); setSearch(''); }}
+          rightSection={<Combobox.Chevron />}
+          rightSectionPointerEvents="none"
+        />
+      </Combobox.Target>
+
+      <Combobox.Dropdown>
+        <Combobox.Search
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          placeholder="Buscar..."
+        />
+        <Combobox.Options>
+          <ScrollArea.Autosize mah={220} type="scroll">
+            {filtradas.length > 0
+              ? filtradas.map((item) => (
+                  <Combobox.Option key={item.value} value={item.value}>
+                    {item.label}
+                  </Combobox.Option>
+                ))
+              : <Combobox.Empty>Sin resultados</Combobox.Empty>
+            }
+          </ScrollArea.Autosize>
+        </Combobox.Options>
+      </Combobox.Dropdown>
+    </Combobox>
+  );
+}
+
+function toOpts(arr: Opcion[], labelKey = 'nombre') {
+  return arr.map((o) => ({ value: String(o.id), label: (o[labelKey] ?? '') as string }));
 }
 
 export default function RemitoForm() {
@@ -45,71 +112,123 @@ export default function RemitoForm() {
   const { usuario } = useAuth();
   const esEdicion = Boolean(id);
 
-  const [catalogos, setCatalogos] = useState<Catalogos>({});
   const [pdvs, setPdvs] = useState<PDV[]>([]);
+  const [productos, setProductos] = useState<Opcion[]>([]);
+  const [especies, setEspecies] = useState<Opcion[]>([]);
+  const [balanzas, setBalanzas] = useState<Opcion[]>([]);
+  const [predios, setPredios] = useState<Opcion[]>([]);
+  const [clientes, setClientes] = useState<Opcion[]>([]);
+  const [empresasTransporte, setEmpresasTransporte] = useState<Opcion[]>([]);
+  const [camiones, setCamiones] = useState<Opcion[]>([]);
+  const [categorias, setCategorias] = useState<Opcion[]>([]);
+  const [subcategorias, setSubcategorias] = useState<Opcion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
   const form = useForm({
     initialValues: {
-      pdv_id: usuario?.pdv_id ? String(usuario.pdv_id) : '',
-      fecha_facturacion: null as Date | null,
-      cliente: '',
-      predio: '',
-      rodal: '',
-      producto: '',
-      especie: '',
-      categoria: '',
-      sub_categoria: '',
-      empresa_elaboracion: '',
-      empresa_extraccion: '',
-      empresa_carga: '',
-      balanza: '',
-      patente_camion: '',
-      tara: 0,
-      peso_bruto: 0,
-      toneladas_cliente: 0,
-      patente_acoplado: '',
-      m3: 0,
-      largos: '',
-      transporte: '',
-      nombre_conductor: '',
-      dni_conductor: '',
-      distancia_km: 0,
+      puntoventa_id:        usuario?.pdv_id ? String(usuario.pdv_id) : '',
+      fecha:                null as Date | null,
+      cliente_id:           '',
+      predio_id:            '',
+      rodal:                '',
+      producto_id:          '',
+      especie_id:           '',
+      categoria_id:         '',
+      subcategoria_id:      '',
+      elaborador_id:        '',
+      extractor_id:         '',
+      cargador_id:          '',
+      balanza_id:           '',
+      camion_id:            '',
+      acopladocamion_id:    '',
+      taracamion:           0 as number,
+      pesobruto:            0 as number,
+      volumencliente:       0 as number,
+      m3:                   null as number | null,
+      largos:               '',
+      largo:                null as number | null,
+      empresatransporte_id: '',
+      conductor:            '',
+      dniconductor:         '',
+      distancia:            null as number | null,
+      observaciones:        '',
     },
     validate: {
-      cliente: (v) => (v.trim() ? null : 'Requerido'),
-      predio: (v) => (v.trim() ? null : 'Requerido'),
-      rodal: (v) => (v.trim() ? null : 'Requerido'),
-      producto: (v) => (v ? null : 'Requerido'),
-      especie: (v) => (v ? null : 'Requerido'),
-      categoria: (v) => (v ? null : 'Requerido'),
-      sub_categoria: (v) => (v ? null : 'Requerido'),
-      empresa_elaboracion: (v) => (v.trim() ? null : 'Requerido'),
-      empresa_extraccion: (v) => (v.trim() ? null : 'Requerido'),
-      empresa_carga: (v) => (v.trim() ? null : 'Requerido'),
-      balanza: (v) => (v ? null : 'Requerido'),
-      patente_camion: (v) => (v.trim() ? null : 'Requerido'),
+      cliente_id:  (v) => (v ? null : 'Requerido'),
+      predio_id:   (v) => (v ? null : 'Requerido'),
+      rodal:       (v) => (v.trim() ? null : 'Requerido'),
+      producto_id: (v) => (v ? null : 'Requerido'),
+      balanza_id:  (v) => (v ? null : 'Requerido'),
     },
   });
 
-  const toneladasIngresada = (form.values.peso_bruto || 0) - (form.values.tara || 0);
+  const toneladasIngresada = (form.values.pesobruto || 0) - (form.values.taracamion || 0);
 
   useEffect(() => {
     async function cargar() {
       try {
-        const promesas: Promise<any>[] = [api.get('/catalogos')];
+        const promesas: Promise<any>[] = [
+          api.get('/catalogos/productos'),
+          api.get('/catalogos/especies'),
+          api.get('/catalogos/balanzas'),
+          api.get('/catalogos/predios'),
+          api.get('/catalogos/clientes'),
+          api.get('/catalogos/empresas-transporte'),
+          api.get('/catalogos/camiones'),
+          api.get('/catalogos/categorias'),
+          api.get('/catalogos/subcategorias'),
+        ];
         if (usuario?.rol === 'superadmin') promesas.push(api.get('/pdv'));
-        const [catRes, pdvRes] = await Promise.all(promesas);
-        setCatalogos(catRes.data);
+
+        const [
+          prodRes, espRes, balRes, predRes, cliRes,
+          etRes, camRes, catRes, scRes, pdvRes,
+        ] = await Promise.all(promesas);
+
+        setProductos(prodRes.data);
+        setEspecies(espRes.data);
+        setBalanzas(balRes.data);
+        setPredios(predRes.data);
+        setClientes(cliRes.data);
+        setEmpresasTransporte(etRes.data);
+        setCamiones(camRes.data.map((c: any) => ({
+          id: c.id,
+          nombre: `${c.patente}${c.marca ? ` — ${c.marca}` : ''}`,
+        })));
+        setCategorias(catRes.data);
+        setSubcategorias(scRes.data);
         if (pdvRes) setPdvs(pdvRes.data);
 
         if (esEdicion) {
           const { data } = await api.get(`/remitos/${id}`);
           form.setValues({
-            ...data,
-            pdv_id: String(data.pdv_id),
-            fecha_facturacion: data.fecha_facturacion ? new Date(data.fecha_facturacion) : null,
+            puntoventa_id:        String(data.puntoventa_id ?? ''),
+            fecha:                data.fecha ? new Date(data.fecha) : null,
+            cliente_id:           String(data.cliente_id ?? ''),
+            predio_id:            String(data.predio_id ?? ''),
+            rodal:                data.rodal ?? '',
+            producto_id:          String(data.producto_id ?? ''),
+            especie_id:           String(data.especie_id ?? ''),
+            categoria_id:         String(data.categoria_id ?? ''),
+            subcategoria_id:      String(data.subcategoria_id ?? ''),
+            elaborador_id:        String(data.elaborador_id ?? ''),
+            extractor_id:         String(data.extractor_id ?? ''),
+            cargador_id:          String(data.cargador_id ?? ''),
+            balanza_id:           String(data.balanza_id ?? ''),
+            camion_id:            String(data.camion_id ?? ''),
+            acopladocamion_id:    String(data.acopladocamion_id ?? ''),
+            taracamion:           data.taracamion ?? 0,
+            pesobruto:            data.pesobruto ?? 0,
+            volumencliente:       data.volumencliente ?? 0,
+            m3:                   data.m3 ?? null,
+            largos:               data.largos ?? '',
+            largo:                data.largo ?? null,
+            empresatransporte_id: String(data.empresatransporte_id ?? ''),
+            conductor:            data.conductor ?? '',
+            dniconductor:         data.dniconductor ?? '',
+            distancia:            data.distancia ?? null,
+            observaciones:        data.observaciones ?? '',
           });
         }
       } catch {
@@ -119,9 +238,10 @@ export default function RemitoForm() {
       }
     }
     cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function guardar(estado: 'borrador' | 'emitido') {
+  async function guardar(estadoLabel: 'borrador' | 'emitido') {
     const valid = form.validate();
     if (valid.hasErrors) return;
 
@@ -129,11 +249,21 @@ export default function RemitoForm() {
     try {
       const payload = {
         ...form.values,
-        pdv_id: form.values.pdv_id || usuario?.pdv_id,
-        fecha_facturacion: form.values.fecha_facturacion
-          ? form.values.fecha_facturacion.toISOString().slice(0, 10)
-          : null,
-        estado,
+        puntoventa_id: form.values.puntoventa_id || usuario?.pdv_id,
+        fecha: form.values.fecha
+          ? form.values.fecha.toISOString()
+          : new Date().toISOString(),
+        estado: estadoLabel,
+        // Convertir strings vacíos a null para FK
+        especie_id:           form.values.especie_id || null,
+        categoria_id:         form.values.categoria_id || null,
+        subcategoria_id:      form.values.subcategoria_id || null,
+        elaborador_id:        form.values.elaborador_id || null,
+        extractor_id:         form.values.extractor_id || null,
+        cargador_id:          form.values.cargador_id || null,
+        camion_id:            form.values.camion_id || null,
+        acopladocamion_id:    form.values.acopladocamion_id || null,
+        empresatransporte_id: form.values.empresatransporte_id || null,
       };
 
       if (esEdicion) {
@@ -141,11 +271,13 @@ export default function RemitoForm() {
         notifications.show({ message: 'Remito actualizado', color: 'green' });
       } else {
         await api.post('/remitos', payload);
-        notifications.show({ message: estado === 'emitido' ? 'Remito emitido exitosamente' : 'Borrador guardado', color: 'green' });
+        notifications.show({
+          message: estadoLabel === 'emitido' ? 'Remito emitido exitosamente' : 'Borrador guardado',
+          color: 'green',
+        });
       }
 
-      const base = usuario?.rol === 'superadmin' ? '/admin' : '/pdv';
-      navigate(`${base}/remitos`);
+      navigate(usuario?.rol === 'superadmin' ? '/admin/remitos' : '/pdv/remitos');
     } catch (e: any) {
       notifications.show({ message: e?.response?.data?.error || 'Error al guardar', color: 'red' });
     } finally {
@@ -162,10 +294,13 @@ export default function RemitoForm() {
     );
   }
 
-  const toSelect = (arr?: string[]) => (arr || []).map((v) => ({ value: v, label: v }));
+  const clienteOpts  = toOpts(clientes);
+  const predioOpts   = toOpts(predios);
+  const camionOpts   = toOpts(camiones);
+  const simpleOpts   = (arr: Opcion[]) => toOpts(arr);
 
   return (
-      <Stack gap="lg">
+    <Stack gap="lg">
       <Group justify="space-between" align="flex-start">
         <Group gap="xs">
           <ActionIcon variant="subtle" color="gray" onClick={() => navigate(-1)}>
@@ -185,7 +320,7 @@ export default function RemitoForm() {
         )}
       </Group>
 
-      {/* ── Cabecera ── */}
+      {/* ── Identificación ── */}
       <Paper p="lg" style={{ border: '1px solid #e9ecef', background: '#fff' }}>
         <SeccionTitulo titulo="Identificación" />
         <Grid gutter="md">
@@ -197,97 +332,137 @@ export default function RemitoForm() {
                 data={pdvs.map((p) => ({ value: String(p.id), label: `PDV ${p.numero} — ${p.nombre}` }))}
                 searchable
                 required
-                {...form.getInputProps('pdv_id')}
+                {...form.getInputProps('puntoventa_id')}
               />
             </Grid.Col>
           )}
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <DatePickerInput
-              label="Fecha de Facturación"
+              label="Fecha"
               placeholder="Seleccioná una fecha"
               locale="es"
               clearable
               valueFormat="DD/MM/YYYY"
-              {...form.getInputProps('fecha_facturacion')}
+              {...form.getInputProps('fecha')}
             />
           </Grid.Col>
         </Grid>
       </Paper>
 
-      {/* ── Producto ── */}
+      {/* ── Datos del Producto ── */}
       <Paper p="lg" style={{ border: '1px solid #e9ecef', background: '#fff' }}>
         <SeccionTitulo titulo="Datos del Producto" />
         <Grid gutter="md">
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput label="Cliente" placeholder="Nombre del cliente" required {...form.getInputProps('cliente')} />
+            <SelectBusqueda
+              label="Cliente"
+              placeholder="Buscar cliente"
+              data={clienteOpts}
+              value={form.values.cliente_id}
+              onChange={(v) => form.setFieldValue('cliente_id', v)}
+              required
+              error={form.errors.cliente_id as string}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput label="Predio" placeholder="Nombre del predio" required {...form.getInputProps('predio')} />
+            <SelectBusqueda
+              label="Predio"
+              placeholder="Buscar predio"
+              data={predioOpts}
+              value={form.values.predio_id}
+              onChange={(v) => form.setFieldValue('predio_id', v)}
+              required
+              error={form.errors.predio_id as string}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
-            <TextInput label="Rodal" placeholder="Nº de rodal" required {...form.getInputProps('rodal')} />
+            <TextInput
+              label="Rodal"
+              placeholder="Nº de rodal"
+              required
+              {...form.getInputProps('rodal')}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
             <Select
               label="Producto"
               placeholder="Seleccioná"
-              data={toSelect(catalogos.producto)}
+              data={simpleOpts(productos)}
               searchable
               required
-              {...form.getInputProps('producto')}
+              {...form.getInputProps('producto_id')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
             <Select
               label="Especie"
               placeholder="Seleccioná"
-              data={toSelect(catalogos.especie)}
+              data={simpleOpts(especies)}
               searchable
-              required
-              {...form.getInputProps('especie')}
+              {...form.getInputProps('especie_id')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <Select
               label="Categoría"
               placeholder="Seleccioná"
-              data={toSelect(catalogos.categoria)}
-              required
-              {...form.getInputProps('categoria')}
+              data={simpleOpts(categorias)}
+              searchable
+              clearable
+              {...form.getInputProps('categoria_id')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <Select
               label="Sub-Categoría"
               placeholder="Seleccioná"
-              data={toSelect(catalogos.sub_categoria)}
-              required
-              {...form.getInputProps('sub_categoria')}
+              data={simpleOpts(subcategorias)}
+              searchable
+              clearable
+              {...form.getInputProps('subcategoria_id')}
             />
           </Grid.Col>
         </Grid>
       </Paper>
 
-      {/* ── Empresas ── */}
+      {/* ── Empresas y Balanza ── */}
       <Paper p="lg" style={{ border: '1px solid #e9ecef', background: '#fff' }}>
         <SeccionTitulo titulo="Empresas y Balanza" />
         <Grid gutter="md">
           <Grid.Col span={{ base: 12, sm: 4 }}>
-            <TextInput label="Empresa Elaboración" placeholder="Nombre empresa" required {...form.getInputProps('empresa_elaboracion')} />
+            <SelectBusqueda
+              label="Empresa Elaboración"
+              placeholder="Buscar empresa"
+              data={clienteOpts}
+              value={form.values.elaborador_id}
+              onChange={(v) => form.setFieldValue('elaborador_id', v)}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
-            <TextInput label="Empresa Extracción" placeholder="Nombre empresa" required {...form.getInputProps('empresa_extraccion')} />
+            <SelectBusqueda
+              label="Empresa Extracción"
+              placeholder="Buscar empresa"
+              data={clienteOpts}
+              value={form.values.extractor_id}
+              onChange={(v) => form.setFieldValue('extractor_id', v)}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
-            <TextInput label="Empresa Carga" placeholder="Nombre empresa" required {...form.getInputProps('empresa_carga')} />
+            <SelectBusqueda
+              label="Empresa Carga"
+              placeholder="Buscar empresa"
+              data={clienteOpts}
+              value={form.values.cargador_id}
+              onChange={(v) => form.setFieldValue('cargador_id', v)}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
             <Select
               label="Balanza"
               placeholder="Seleccioná"
-              data={toSelect(catalogos.balanza)}
+              data={simpleOpts(balanzas)}
               required
-              {...form.getInputProps('balanza')}
+              {...form.getInputProps('balanza_id')}
             />
           </Grid.Col>
         </Grid>
@@ -298,48 +473,47 @@ export default function RemitoForm() {
         <SeccionTitulo titulo="Pesaje" />
         <Grid gutter="md">
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput
-              label="Patente Camión"
-              placeholder="Ej: SDR 830"
-              required
-              styles={{ input: { textTransform: 'uppercase' } }}
-              {...form.getInputProps('patente_camion')}
-              onChange={(e) => form.setFieldValue('patente_camion', e.currentTarget.value.toUpperCase())}
+            <SelectBusqueda
+              label="Camión"
+              placeholder="Buscar por patente"
+              data={camionOpts}
+              value={form.values.camion_id}
+              onChange={(v) => form.setFieldValue('camion_id', v)}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput
-              label="Patente Acoplado"
-              placeholder="Ej: RDW 661"
-              styles={{ input: { textTransform: 'uppercase' } }}
-              {...form.getInputProps('patente_acoplado')}
-              onChange={(e) => form.setFieldValue('patente_acoplado', e.currentTarget.value.toUpperCase())}
+            <SelectBusqueda
+              label="Acoplado"
+              placeholder="Buscar por patente"
+              data={camionOpts}
+              value={form.values.acopladocamion_id}
+              onChange={(v) => form.setFieldValue('acopladocamion_id', v)}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 6, sm: 3 }}>
             <NumberInput
               label="Tara"
               placeholder="0,00"
-              decimalScale={2}
+              decimalScale={3}
               min={0}
               suffix=" tn"
-              {...form.getInputProps('tara')}
+              {...form.getInputProps('taracamion')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 6, sm: 3 }}>
             <NumberInput
               label="Peso Bruto"
               placeholder="0,00"
-              decimalScale={2}
+              decimalScale={3}
               min={0}
               suffix=" tn"
-              {...form.getInputProps('peso_bruto')}
+              {...form.getInputProps('pesobruto')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 6, sm: 3 }}>
             <TextInput
               label="Tn. Ingresadas"
-              value={toneladasIngresada.toFixed(2)}
+              value={toneladasIngresada.toFixed(3)}
               readOnly
               styles={{ input: { background: '#f8f9fa', fontWeight: 600, color: '#2e7d32' } }}
             />
@@ -348,10 +522,10 @@ export default function RemitoForm() {
             <NumberInput
               label="Tn. Cliente"
               placeholder="0,00"
-              decimalScale={2}
+              decimalScale={3}
               min={0}
               suffix=" tn"
-              {...form.getInputProps('toneladas_cliente')}
+              {...form.getInputProps('volumencliente')}
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
@@ -364,6 +538,15 @@ export default function RemitoForm() {
             />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 4 }}>
+            <NumberInput
+              label="Largo (m)"
+              placeholder="0,00"
+              decimalScale={2}
+              min={0}
+              {...form.getInputProps('largo')}
+            />
+          </Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 4 }}>
             <TextInput
               label="Largos"
               placeholder="Ej: 3.15"
@@ -373,26 +556,47 @@ export default function RemitoForm() {
         </Grid>
       </Paper>
 
-      {/* ── Transporte ── */}
+      {/* ── Transporte y Conductor ── */}
       <Paper p="lg" style={{ border: '1px solid #e9ecef', background: '#fff' }}>
         <SeccionTitulo titulo="Transporte y Conductor" />
         <Grid gutter="md">
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput label="Empresa Transporte" placeholder="Nombre empresa" {...form.getInputProps('transporte')} />
+            <SelectBusqueda
+              label="Empresa Transporte"
+              placeholder="Buscar empresa"
+              data={toOpts(empresasTransporte)}
+              value={form.values.empresatransporte_id}
+              onChange={(v) => form.setFieldValue('empresatransporte_id', v)}
+            />
           </Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput label="Nombre Conductor" placeholder="Apellido Nombre" {...form.getInputProps('nombre_conductor')} />
+            <TextInput
+              label="Conductor"
+              placeholder="Apellido Nombre"
+              {...form.getInputProps('conductor')}
+            />
           </Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6 }}>
-            <TextInput label="DNI Conductor" placeholder="Ej: 28.456.789" {...form.getInputProps('dni_conductor')} />
+          <Grid.Col span={{ base: 12, sm: 4 }}>
+            <TextInput
+              label="DNI Conductor"
+              placeholder="Ej: 28456789"
+              {...form.getInputProps('dniconductor')}
+            />
           </Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6 }}>
+          <Grid.Col span={{ base: 12, sm: 4 }}>
             <NumberInput
               label="Distancia (Km)"
               placeholder="0"
               min={0}
               suffix=" km"
-              {...form.getInputProps('distancia_km')}
+              {...form.getInputProps('distancia')}
+            />
+          </Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 4 }}>
+            <TextInput
+              label="Observaciones"
+              placeholder="Notas adicionales"
+              {...form.getInputProps('observaciones')}
             />
           </Grid.Col>
         </Grid>

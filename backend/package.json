@@ -4,8 +4,8 @@
   "description": "Backend API para Remitero Forestal",
   "main": "src/index.js",
   "scripts": {
-    "start": "node --experimental-sqlite src/index.js",
-    "dev": "nodemon --experimental-sqlite src/index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +16,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.18.3",
     "jsonwebtoken": "^9.0.2",
+    "pg": "^8.19.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

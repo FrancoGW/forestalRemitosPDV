@@ -28,7 +28,13 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3001;
 
-initDB();
-app.listen(PORT, () => {
-  console.log(`[Server] Corriendo en http://localhost:${PORT}`);
-});
+initDB()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`[Server] Corriendo en http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[Server] Error al iniciar:', err.message);
+    process.exit(1);
+  });

@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { pool } = require('../db');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -9,117 +9,182 @@ function getPdvId(user) {
   return user.rol === 'pdv' ? user.pdv_id : null;
 }
 
-// Buscar camión por código QR (usado al escanear)
-router.get('/escanear/:codigo', (req, res) => {
-  const camion = db.prepare('SELECT * FROM camiones WHERE codigo = ? AND activo = 1').get(req.params.codigo);
-  if (!camion) return res.status(404).json({ error: 'QR inválido o camión desactivado' });
+// Buscar camión por código QR (al escanear)
+router.get('/escanear/:codigo', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.*, qr.codigo AS app_codigo
+       FROM camion c JOIN app_camion_qr qr ON qr.camion_id = c.id
+       WHERE qr.codigo = $1`,
+      [req.params.codigo]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'QR inválido o camión no encontrado' });
 
-  const movActivo = db.prepare(`
-    SELECT m.*, p.numero as pdv_numero, p.nombre as pdv_nombre
-    FROM movimientos m
-    JOIN puntos_de_venta p ON p.id = m.pdv_id
-    WHERE m.camion_id = ? AND m.estado = 'en_predio'
-    ORDER BY m.fecha_entrada DESC LIMIT 1
-  `).get(camion.id);
+    const camion = rows[0];
+    const { rows: movRows } = await pool.query(`
+      SELECT m.*, pv.numero AS pdv_numero, pv.nombre AS pdv_nombre
+      FROM app_movimientos m
+      JOIN puntoventa pv ON pv.id = m.puntoventa_id
+      WHERE m.camion_id = $1 AND m.estado = 'en_predio'
+      ORDER BY m.fecha_entrada DESC LIMIT 1
+    `, [camion.id]);
 
-  res.json({ camion, movimiento_activo: movActivo || null });
+    res.json({ camion, movimiento_activo: movRows[0] || null });
+  } catch (e) {
+    console.error('[GET /movimientos/escanear]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Registrar ENTRADA
-router.post('/entrada', (req, res) => {
-  const { codigo, notas } = req.body;
-  const pdvId = getPdvId(req.user) || req.body.pdv_id;
+router.post('/entrada', async (req, res) => {
+  try {
+    const { codigo, notas } = req.body;
+    const pdvId = getPdvId(req.user) || req.body.pdv_id;
 
-  if (!codigo) return res.status(400).json({ error: 'Código QR requerido' });
-  if (!pdvId)  return res.status(400).json({ error: 'pdv_id requerido' });
+    if (!codigo) return res.status(400).json({ error: 'Código QR requerido' });
+    if (!pdvId)  return res.status(400).json({ error: 'pdv_id requerido' });
 
-  const camion = db.prepare('SELECT * FROM camiones WHERE codigo = ? AND activo = 1').get(codigo);
-  if (!camion) return res.status(404).json({ error: 'QR inválido o camión desactivado' });
+    const { rows: camRows } = await pool.query(
+      `SELECT c.*, qr.codigo AS app_codigo
+       FROM camion c JOIN app_camion_qr qr ON qr.camion_id = c.id
+       WHERE qr.codigo = $1`,
+      [codigo]
+    );
+    if (!camRows.length) return res.status(404).json({ error: 'QR inválido o camión no encontrado' });
 
-  const yaAdentro = db.prepare(
-    "SELECT id FROM movimientos WHERE camion_id = ? AND estado = 'en_predio'"
-  ).get(camion.id);
-  if (yaAdentro) {
-    return res.status(409).json({ error: 'El camión ya tiene una entrada activa sin salida registrada' });
+    const camion = camRows[0];
+
+    const { rows: activo } = await pool.query(
+      `SELECT id FROM app_movimientos WHERE camion_id = $1 AND estado = 'en_predio'`,
+      [camion.id]
+    );
+    if (activo.length) {
+      return res.status(409).json({ error: 'El camión ya tiene una entrada activa sin salida registrada' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO app_movimientos (camion_id, puntoventa_id, notas) VALUES ($1, $2, $3) RETURNING *`,
+      [camion.id, pdvId, notas || null]
+    );
+
+    res.status(201).json({ mensaje: 'Entrada registrada', movimiento: rows[0], camion });
+  } catch (e) {
+    console.error('[POST /movimientos/entrada]', e.message);
+    res.status(500).json({ error: e.message });
   }
-
-  const { lastInsertRowid } = db.prepare(`
-    INSERT INTO movimientos (camion_id, pdv_id, notas) VALUES (?, ?, ?)
-  `).run(camion.id, pdvId, notas || null);
-
-  const movimiento = db.prepare('SELECT * FROM movimientos WHERE id = ?').get(lastInsertRowid);
-  res.status(201).json({ mensaje: 'Entrada registrada', movimiento, camion });
 });
 
-// Registrar SALIDA — requiere remito_id
-router.post('/salida', (req, res) => {
-  const { movimiento_id, remito_id, notas } = req.body;
-  const pdvId = getPdvId(req.user);
+// Registrar SALIDA — requiere despacho_id
+router.post('/salida', async (req, res) => {
+  try {
+    const { movimiento_id, remito_id, notas } = req.body;
+    const pdvId = getPdvId(req.user);
 
-  if (!movimiento_id) return res.status(400).json({ error: 'movimiento_id requerido' });
-  if (!remito_id)     return res.status(400).json({ error: 'Debés asociar un remito para registrar la salida' });
+    if (!movimiento_id) return res.status(400).json({ error: 'movimiento_id requerido' });
+    if (!remito_id)     return res.status(400).json({ error: 'Debés asociar un remito para registrar la salida' });
 
-  const mov = db.prepare('SELECT * FROM movimientos WHERE id = ?').get(movimiento_id);
-  if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
-  if (mov.estado === 'salio') return res.status(400).json({ error: 'El camión ya registró su salida' });
-  if (pdvId && mov.pdv_id !== pdvId) return res.status(403).json({ error: 'Sin acceso a este movimiento' });
+    const { rows } = await pool.query(
+      'SELECT * FROM app_movimientos WHERE id = $1', [movimiento_id]
+    );
+    const mov = rows[0];
+    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (mov.estado === 'salio') return res.status(400).json({ error: 'El camión ya registró su salida' });
+    if (pdvId && parseInt(mov.puntoventa_id) !== parseInt(pdvId)) {
+      return res.status(403).json({ error: 'Sin acceso a este movimiento' });
+    }
 
-  const remito = db.prepare('SELECT * FROM remitos WHERE id = ?').get(remito_id);
-  if (!remito) return res.status(404).json({ error: 'Remito no encontrado' });
-  if (remito.estado === 'anulado') return res.status(400).json({ error: 'No se puede usar un remito anulado' });
+    const { rows: remRows } = await pool.query(
+      'SELECT id, estado_id FROM despacho WHERE id = $1', [remito_id]
+    );
+    if (!remRows.length) return res.status(404).json({ error: 'Remito no encontrado' });
+    if (parseInt(remRows[0].estado_id) === 4) {
+      return res.status(400).json({ error: 'No se puede usar un remito cancelado' });
+    }
 
-  db.prepare(`
-    UPDATE movimientos
-    SET estado = 'salio', fecha_salida = datetime('now'), remito_id = ?, notas = COALESCE(?, notas)
-    WHERE id = ?
-  `).run(remito_id, notas || null, mov.id);
+    const { rows: updated } = await pool.query(
+      `UPDATE app_movimientos
+       SET estado = 'salio', fecha_salida = NOW(),
+           despacho_id = $1, notas = COALESCE($2, notas)
+       WHERE id = $3
+       RETURNING *`,
+      [remito_id, notas || null, mov.id]
+    );
 
-  const movActualizado = db.prepare('SELECT * FROM movimientos WHERE id = ?').get(mov.id);
-  res.json({ mensaje: 'Salida registrada', movimiento: movActualizado });
+    res.json({ mensaje: 'Salida registrada', movimiento: updated[0] });
+  } catch (e) {
+    console.error('[POST /movimientos/salida]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Listar movimientos
-router.get('/', (req, res) => {
-  const { estado, fecha, pdv_id: qPdvId } = req.query;
-  const pdvId = getPdvId(req.user) || qPdvId;
+router.get('/', async (req, res) => {
+  try {
+    const { estado, fecha, pdv_id: qPdvId } = req.query;
+    const pdvId = getPdvId(req.user) || qPdvId;
 
-  let sql = `
-    SELECT m.*,
-      c.nombre as camion_nombre, c.patente as camion_patente, c.cliente as camion_cliente,
-      p.numero as pdv_numero, p.nombre as pdv_nombre,
-      r.numero as remito_numero
-    FROM movimientos m
-    JOIN camiones c ON c.id = m.camion_id
-    JOIN puntos_de_venta p ON p.id = m.pdv_id
-    LEFT JOIN remitos r ON r.id = m.remito_id
-    WHERE 1=1
-  `;
-  const params = [];
+    const conditions = ['1=1'];
+    const params = [];
 
-  if (pdvId)  { sql += ' AND m.pdv_id = ?';          params.push(pdvId); }
-  if (estado) { sql += ' AND m.estado = ?';           params.push(estado); }
-  if (fecha)  { sql += ' AND DATE(m.fecha_entrada) = ?'; params.push(fecha); }
+    if (pdvId) { params.push(pdvId); conditions.push(`m.puntoventa_id = $${params.length}`); }
+    if (estado) { params.push(estado); conditions.push(`m.estado = $${params.length}`); }
+    if (fecha)  { params.push(fecha);  conditions.push(`m.fecha_entrada::date = $${params.length}`); }
 
-  sql += ' ORDER BY m.fecha_entrada DESC LIMIT 200';
-  res.json(db.prepare(sql).all(...params));
+    const sql = `
+      SELECT m.*,
+        c.patente  AS camion_patente,
+        c.marca    AS camion_marca,
+        pv.numero  AS pdv_numero,
+        pv.nombre  AS pdv_nombre,
+        d.nroremito AS remito_numero
+      FROM app_movimientos m
+      JOIN camion     c  ON c.id  = m.camion_id
+      JOIN puntoventa pv ON pv.id = m.puntoventa_id
+      LEFT JOIN despacho d ON d.id = m.despacho_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY m.fecha_entrada DESC LIMIT 200
+    `;
+
+    const { rows } = await pool.query(sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error('[GET /movimientos]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// Remitos disponibles para asociar a la salida de un camión (del mismo PDV, sin salida vinculada)
-router.get('/remitos-disponibles', (req, res) => {
-  const pdvId = getPdvId(req.user) || req.query.pdv_id;
-  if (!pdvId) return res.status(400).json({ error: 'pdv_id requerido' });
+// Remitos disponibles para asociar a la salida de un camión
+router.get('/remitos-disponibles', async (req, res) => {
+  try {
+    const pdvId = getPdvId(req.user) || req.query.pdv_id;
+    if (!pdvId) return res.status(400).json({ error: 'pdv_id requerido' });
 
-  const remitos = db.prepare(`
-    SELECT r.id, r.numero, r.cliente, r.patente_camion, r.fecha_emision, r.estado
-    FROM remitos r
-    WHERE r.pdv_id = ?
-      AND r.estado != 'anulado'
-      AND r.id NOT IN (SELECT remito_id FROM movimientos WHERE remito_id IS NOT NULL)
-    ORDER BY r.id DESC
-    LIMIT 50
-  `).all(pdvId);
+    const { rows } = await pool.query(`
+      SELECT d.id, d.nroremito AS numero,
+             cl.nombre1 AS cliente,
+             cam.patente AS patente_camion,
+             d.fecha AS fecha_emision,
+             CASE d.estado_id WHEN 4 THEN 'anulado'
+                              WHEN 3 THEN 'emitido'
+                              ELSE 'borrador' END AS estado
+      FROM despacho d
+      LEFT JOIN cliente cl  ON cl.id  = d.cliente_id
+      LEFT JOIN camion  cam ON cam.id = d.camion_id
+      WHERE d.puntoventa_id = $1
+        AND d.estado_id != 4
+        AND d.id NOT IN (
+          SELECT despacho_id FROM app_movimientos WHERE despacho_id IS NOT NULL
+        )
+      ORDER BY d.id DESC
+      LIMIT 50
+    `, [pdvId]);
 
-  res.json(remitos);
+    res.json(rows);
+  } catch (e) {
+    console.error('[GET /movimientos/remitos-disponibles]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

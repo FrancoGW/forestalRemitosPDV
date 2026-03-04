@@ -1,92 +1,155 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const { db } = require('../db');
+const { pool } = require('../db');
 const { authMiddleware, soloSuperAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authMiddleware, soloSuperAdmin);
 
-router.get('/', (req, res) => {
-  const pdvs = db.prepare(`
-    SELECT p.*, u.nombre as usuario_nombre, u.username as usuario_username, u.activo as usuario_activo
-    FROM puntos_de_venta p
-    JOIN usuarios u ON u.id = p.usuario_id
-    ORDER BY p.numero ASC
-  `).all();
-  res.json(pdvs);
+router.get('/', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT pv.*,
+        u.nome         AS usuario_nombre,
+        u.codigoacesso AS usuario_username,
+        u.habilitado   AS usuario_activo,
+        u.id           AS usuario_id
+      FROM puntoventa pv
+      LEFT JOIN app_usuario_pdv aup ON aup.puntoventa_id = pv.id
+      LEFT JOIN usuario u           ON u.id = aup.usuario_id
+      WHERE pv.mostrar = true
+      ORDER BY pv.numero ASC
+    `);
+    res.json(rows);
+  } catch (e) {
+    console.error('[GET /pdv]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { numero, nombre, username, password } = req.body;
   if (!numero || !nombre || !username || !password) {
     return res.status(400).json({ error: 'Todos los campos son requeridos' });
   }
 
-  const existente = db.prepare("SELECT id FROM usuarios WHERE username = ?").get(username);
-  if (existente) return res.status(409).json({ error: 'El nombre de usuario ya está en uso' });
-
-  const existeNumero = db.prepare("SELECT id FROM puntos_de_venta WHERE numero = ?").get(numero);
-  if (existeNumero) return res.status(409).json({ error: 'El número de punto de venta ya existe' });
-
-  const hash = bcrypt.hashSync(password, 10);
-
-  let result;
+  const client = await pool.connect();
   try {
-    db.exec('BEGIN');
-    const { lastInsertRowid: userId } = db.prepare(`
-      INSERT INTO usuarios (nombre, username, password, rol) VALUES (?, ?, ?, 'pdv')
-    `).run(nombre, username, hash);
-    const { lastInsertRowid: pdvId } = db.prepare(`
-      INSERT INTO puntos_de_venta (numero, nombre, usuario_id) VALUES (?, ?, ?)
-    `).run(numero, nombre, userId);
-    db.exec('COMMIT');
-    result = { userId, pdvId };
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
+    await client.query('BEGIN');
 
-  res.status(201).json({ mensaje: 'Punto de venta creado', ...result });
+    const { rows: existing } = await client.query(
+      'SELECT id FROM usuario WHERE codigoacesso = $1', [username]
+    );
+    if (existing.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'El nombre de usuario ya está en uso' });
+    }
+
+    const { rows: existePdv } = await client.query(
+      'SELECT id FROM puntoventa WHERE numero = $1', [numero]
+    );
+    if (existePdv.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'El número de punto de venta ya existe' });
+    }
+
+    const { rows: pvRows } = await client.query(
+      `INSERT INTO puntoventa (nombre, numero, mostrar) VALUES ($1, $2, true) RETURNING id`,
+      [nombre, numero]
+    );
+    const pdvId = pvRows[0].id;
+
+    const { rows: uRows } = await client.query(
+      `INSERT INTO usuario (codigoacesso, senha, nome, habilitado, superusuario, empresa_chavefiscal, estilo_id, idioma_id)
+       VALUES ($1, $2, $3, true, false, '654321', 5, 1)
+       RETURNING id`,
+      [username, password, nombre]
+    );
+    const userId = uRows[0].id;
+
+    await client.query(
+      `INSERT INTO app_usuario_pdv (usuario_id, puntoventa_id) VALUES ($1, $2)`,
+      [userId, pdvId]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ mensaje: 'Punto de venta creado', pdvId });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[POST /pdv]', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
 });
 
-router.put('/:id', (req, res) => {
-  const { nombre, username, password, activo } = req.body;
-  const pdv = db.prepare("SELECT * FROM puntos_de_venta WHERE id = ?").get(req.params.id);
-  if (!pdv) return res.status(404).json({ error: 'Punto de venta no encontrado' });
-
+router.put('/:id', async (req, res) => {
+  const client = await pool.connect();
   try {
-    db.exec('BEGIN');
+    const { rows } = await client.query(
+      `SELECT pv.*, u.id AS usuario_id FROM puntoventa pv
+       LEFT JOIN app_usuario_pdv aup ON aup.puntoventa_id = pv.id
+       LEFT JOIN usuario u           ON u.id = aup.usuario_id
+       WHERE pv.id = $1`,
+      [req.params.id]
+    );
+    const pdv = rows[0];
+    if (!pdv) return res.status(404).json({ error: 'Punto de venta no encontrado' });
+
+    await client.query('BEGIN');
+
+    const { nombre, username, password, activo } = req.body;
+
     if (nombre) {
-      db.prepare("UPDATE puntos_de_venta SET nombre = ? WHERE id = ?").run(nombre, pdv.id);
-      db.prepare("UPDATE usuarios SET nombre = ? WHERE id = ?").run(nombre, pdv.usuario_id);
+      await client.query('UPDATE puntoventa SET nombre = $1 WHERE id = $2', [nombre, pdv.id]);
+      if (pdv.usuario_id) {
+        await client.query('UPDATE usuario SET nome = $1 WHERE id = $2', [nombre, pdv.usuario_id]);
+      }
     }
-    if (username) {
-      const colision = db.prepare("SELECT id FROM usuarios WHERE username = ? AND id != ?").get(username, pdv.usuario_id);
-      if (colision) { db.exec('ROLLBACK'); return res.status(409).json({ error: 'El nombre de usuario ya está en uso' }); }
-      db.prepare("UPDATE usuarios SET username = ? WHERE id = ?").run(username, pdv.usuario_id);
+
+    if (username && pdv.usuario_id) {
+      const { rows: col } = await client.query(
+        'SELECT id FROM usuario WHERE codigoacesso = $1 AND id != $2', [username, pdv.usuario_id]
+      );
+      if (col.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'El nombre de usuario ya está en uso' });
+      }
+      await client.query('UPDATE usuario SET codigoacesso = $1 WHERE id = $2', [username, pdv.usuario_id]);
     }
-    if (password) {
-      const hash = bcrypt.hashSync(password, 10);
-      db.prepare("UPDATE usuarios SET password = ? WHERE id = ?").run(hash, pdv.usuario_id);
+
+    if (password && pdv.usuario_id) {
+      await client.query('UPDATE usuario SET senha = $1 WHERE id = $2', [password, pdv.usuario_id]);
     }
+
     if (activo !== undefined) {
-      db.prepare("UPDATE puntos_de_venta SET activo = ? WHERE id = ?").run(activo ? 1 : 0, pdv.id);
-      db.prepare("UPDATE usuarios SET activo = ? WHERE id = ?").run(activo ? 1 : 0, pdv.usuario_id);
+      await client.query('UPDATE puntoventa SET mostrar = $1 WHERE id = $2', [activo, pdv.id]);
+      if (pdv.usuario_id) {
+        await client.query('UPDATE usuario SET habilitado = $1 WHERE id = $2', [activo, pdv.usuario_id]);
+      }
     }
-    db.exec('COMMIT');
+
+    await client.query('COMMIT');
     res.json({ mensaje: 'Punto de venta actualizado' });
   } catch (e) {
-    db.exec('ROLLBACK');
-    res.status(409).json({ error: e.message });
+    await client.query('ROLLBACK');
+    console.error('[PUT /pdv/:id]', e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
-router.delete('/:id', (req, res) => {
-  const pdv = db.prepare("SELECT * FROM puntos_de_venta WHERE id = ?").get(req.params.id);
-  if (!pdv) return res.status(404).json({ error: 'Punto de venta no encontrado' });
+router.delete('/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id FROM puntoventa WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Punto de venta no encontrado' });
 
-  db.prepare("DELETE FROM puntos_de_venta WHERE id = ?").run(pdv.id);
-  res.json({ mensaje: 'Punto de venta eliminado' });
+    await pool.query('UPDATE puntoventa SET mostrar = false WHERE id = $1', [req.params.id]);
+    res.json({ mensaje: 'Punto de venta desactivado' });
+  } catch (e) {
+    console.error('[DELETE /pdv/:id]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

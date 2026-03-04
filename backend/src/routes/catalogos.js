@@ -1,44 +1,119 @@
 const express = require('express');
-const { db } = require('../db');
+const { pool } = require('../db');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authMiddleware);
 
-router.get('/', (req, res) => {
-  const { tipo } = req.query;
-  const query = tipo
-    ? db.prepare("SELECT * FROM catalogos WHERE tipo = ? AND activo = 1 ORDER BY valor ASC")
-    : db.prepare("SELECT * FROM catalogos WHERE activo = 1 ORDER BY tipo, valor ASC");
-
-  const items = tipo ? query.all(tipo) : query.all();
-
-  const agrupados = items.reduce((acc, item) => {
-    if (!acc[item.tipo]) acc[item.tipo] = [];
-    acc[item.tipo].push(item.valor);
-    return acc;
-  }, {});
-
-  res.json(agrupados);
+router.get('/productos', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre FROM producto WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-router.post('/', (req, res) => {
-  if (req.user.rol !== 'superadmin') {
-    return res.status(403).json({ error: 'Solo superadmin puede gestionar catálogos' });
+router.get('/especies', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre FROM especie WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-  const { tipo, valor } = req.body;
-  if (!tipo || !valor) return res.status(400).json({ error: 'tipo y valor requeridos' });
-
-  const { lastInsertRowid } = db.prepare("INSERT INTO catalogos (tipo, valor) VALUES (?, ?)").run(tipo, valor);
-  res.status(201).json({ id: lastInsertRowid, tipo, valor });
 });
 
-router.delete('/:id', (req, res) => {
-  if (req.user.rol !== 'superadmin') {
-    return res.status(403).json({ error: 'Solo superadmin puede gestionar catálogos' });
+router.get('/balanzas', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre FROM balanza WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-  db.prepare("UPDATE catalogos SET activo = 0 WHERE id = ?").run(req.params.id);
-  res.json({ mensaje: 'Ítem eliminado' });
+});
+
+router.get('/predios', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre, codigo FROM predio WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/clientes', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, COALESCE(nombre1, nrocuit, 'Sin nombre') AS nombre, nrocuit
+       FROM cliente WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/empresas-transporte', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, COALESCE(nombre1, nrocuit, 'Sin nombre') AS nombre, nrocuit
+       FROM empresatransporte ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/camiones', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.patente,
+              COALESCE(c.marca,'') AS marca,
+              COALESCE(c.modelo,'') AS modelo,
+              qr.codigo
+       FROM camion c
+       LEFT JOIN app_camion_qr qr ON qr.camion_id = c.id
+       ORDER BY c.patente ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/categorias', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, nombre FROM categoria WHERE habilitado = true ORDER BY nombre ASC`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/subcategorias', async (req, res) => {
+  try {
+    const { categoria_id } = req.query;
+    const params = categoria_id ? [categoria_id] : [];
+    const where = categoria_id ? 'WHERE habilitado = true AND categoria_id = $1' : 'WHERE habilitado = true';
+    const { rows } = await pool.query(
+      `SELECT id, nombre, categoria_id FROM subcategoria ${where} ORDER BY nombre ASC`,
+      params
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

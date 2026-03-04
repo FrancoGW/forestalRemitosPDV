@@ -49,7 +49,7 @@ export default function Login() {
             <Group gap={8} mb={2}>
               <IconLeaf size={22} color="#2d8a39" strokeWidth={2} />
               <Text fw={700} size="md" style={{ letterSpacing: '-0.01em' }}>
-                Forestal Argentina
+                Sistema Forestal
               </Text>
             </Group>
             <Title order={3} fw={600} style={{ letterSpacing: '-0.02em' }}>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Title, Text, Stack, SimpleGrid, Paper, Group, Badge,
+  Title, Text, Stack, SimpleGrid, Paper, Group,
   SegmentedControl, Button, Skeleton,
   Box, Grid,
 } from '@mantine/core';
@@ -141,8 +141,6 @@ export default function PanelAdmin() {
   const [periodo, setPeriodo] = useState<Periodo>('semana');
   const [rango, setRango] = useState<[Date | null, Date | null]>([null, null]);
   const [cargando, setCargando] = useState(true);
-  const [seedando, setSeedando] = useState(false);
-  const [demoCargada, setDemoCargada] = useState<boolean | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -160,23 +158,6 @@ export default function PanelAdmin() {
   }, [periodo, rango]);
 
   useEffect(() => { cargar(); }, [cargar]);
-
-  useEffect(() => {
-    api.get('/admin/seed-demo/estado')
-      .then(({ data }) => setDemoCargada(data.cargado))
-      .catch(() => setDemoCargada(false));
-  }, []);
-
-  async function seedDemo() {
-    setSeedando(true);
-    try {
-      await api.post('/admin/seed-demo');
-      setDemoCargada(true);
-      cargar();
-    } finally {
-      setSeedando(false);
-    }
-  }
 
   const fmt = (n: number | null | undefined, dec = 0) =>
     n != null ? n.toLocaleString('es-AR', { maximumFractionDigits: dec }) : '0';
@@ -332,22 +313,6 @@ export default function PanelAdmin() {
           >
             Actualizar
           </Button>
-          {demoCargada === false && (
-            <Button
-              size="xs"
-              color="green"
-              variant="light"
-              loading={seedando}
-              onClick={seedDemo}
-            >
-              Cargar datos demo
-            </Button>
-          )}
-          {demoCargada === true && (
-            <Badge color="green" variant="light" size="sm">
-              Demo cargada
-            </Badge>
-          )}
         </Group>
       </Group>
 

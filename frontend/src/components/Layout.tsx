@@ -62,7 +62,7 @@ export default function Layout({ navItems, basePath }: Props) {
             <Group gap={6}>
               <IconLeaf size={20} color="#2d8a39" strokeWidth={2} />
               <Text fw={700} size="sm" style={{ letterSpacing: '-0.01em', color: '#1a1a1a' }}>
-                Forestal Argentina
+                Sistema Forestal
               </Text>
             </Group>
           </Group>

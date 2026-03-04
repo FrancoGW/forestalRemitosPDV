@@ -69,9 +69,9 @@ export default function Remitos() {
   const filtrados = useMemo(() =>
     remitos.filter((r) =>
       busqueda === '' ||
-      r.cliente.toLowerCase().includes(busqueda.toLowerCase()) ||
-      r.predio.toLowerCase().includes(busqueda.toLowerCase()) ||
-      String(r.numero).includes(busqueda)
+      (r.cliente ?? '').toLowerCase().includes(busqueda.toLowerCase()) ||
+      (r.predio ?? '').toLowerCase().includes(busqueda.toLowerCase()) ||
+      String(r.numero ?? '').includes(busqueda)
     ),
     [remitos, busqueda]
   );
@@ -89,7 +89,7 @@ export default function Remitos() {
       <Table.Td>{r.predio}</Table.Td>
       <Table.Td>{r.especie} / {r.producto}</Table.Td>
       <Table.Td>
-        <Text fw={500}>{r.toneladas_ingresada?.toFixed(2)} tn</Text>
+        <Text fw={500}>{r.toneladas_ingresada != null ? Number(r.toneladas_ingresada).toFixed(2) : '—'} tn</Text>
       </Table.Td>
       <Table.Td>
         <Text size="sm" c="dimmed">
@@ -97,8 +97,8 @@ export default function Remitos() {
         </Text>
       </Table.Td>
       <Table.Td>
-        <Badge color={colorEstado[r.estado]} variant="light">
-          {r.estado.charAt(0).toUpperCase() + r.estado.slice(1)}
+        <Badge color={colorEstado[r.estado] ?? 'gray'} variant="light">
+          {r.estado ? r.estado.charAt(0).toUpperCase() + r.estado.slice(1) : '-'}
         </Badge>
       </Table.Td>
       <Table.Td>
