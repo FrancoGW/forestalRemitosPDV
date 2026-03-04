@@ -1,11 +1,7 @@
 import axios from 'axios';
 
-// En web usa el proxy de Vite (/api → VITE_API_URL).
-// En Capacitor (iOS/Android) no hay proxy, se conecta directo al servidor.
-const isNative = typeof (window as any).Capacitor !== 'undefined';
-const baseURL = isNative
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api';
+// Siempre usa la URL completa del backend (funciona en web y Capacitor).
+const baseURL = `${import.meta.env.VITE_API_URL}/api`;
 
 const api = axios.create({ baseURL });
 
