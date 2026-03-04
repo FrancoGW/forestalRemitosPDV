@@ -28,13 +28,28 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3001;
 
-initDB()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`[Server] Corriendo en http://localhost:${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error('[Server] Error al iniciar:', err.message);
-    process.exit(1);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function startServer() {
+  // Levantar el servidor primero para que Railway no lo mate por health check
+  app.listen(PORT, () => {
+    console.log(`[Server] Corriendo en http://localhost:${PORT}`);
   });
+
+  // Reintentar initDB con backoff exponencial hasta que la DB esté disponible
+  let intentos = 0;
+  while (true) {
+    try {
+      await initDB();
+      break;
+    } catch (err) {
+      intentos++;
+      const espera = Math.min(5000 * intentos, 60000);
+      console.error(`[DB] Error en initDB (intento ${intentos}): ${err.message}`);
+      console.log(`[DB] Reintentando en ${espera / 1000}s...`);
+      await sleep(espera);
+    }
+  }
+}
+
+startServer();
