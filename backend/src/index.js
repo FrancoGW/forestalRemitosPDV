@@ -13,7 +13,18 @@ const adminRoutes       = require('./routes/admin');
 
 const app = express();
 
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error('CORS no permitido: ' + origin));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 app.use('/api/auth',        authRoutes);

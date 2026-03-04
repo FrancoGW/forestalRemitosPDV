@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Title, Text, Stack, Group, Paper, Badge, Button,
   Modal, Select, Tabs, Table, Skeleton, Alert,
-  ThemeIcon, Divider, TextInput, Box,
+  ThemeIcon, Divider, TextInput,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -88,7 +88,7 @@ export default function Accesos() {
     if (!resultado) return;
     setProcesando(true);
     try {
-      const { data } = await api.post('/movimientos/entrada', {
+      await api.post('/movimientos/entrada', {
         codigo: resultado.camion.codigo,
         pdv_id: usuario?.pdv_id,
       });

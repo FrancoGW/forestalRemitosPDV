@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import {
   Title, Text, Stack, Button, Group, Paper, Badge,
@@ -32,8 +32,6 @@ export default function Camiones() {
   const [camionQR, setCamionQR] = useState<Camion | null>(null);
   const [modalCrear, { open: abrirCrear, close: cerrarCrear }] = useDisclosure(false);
   const [modalQR, { open: abrirQR, close: cerrarQR }] = useDisclosure(false);
-  const qrRef = useRef<HTMLCanvasElement | null>(null);
-
   const form = useForm({
     initialValues: { nombre: '', patente: '', cliente: '' },
     validate: {

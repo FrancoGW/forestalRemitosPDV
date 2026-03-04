@@ -123,7 +123,7 @@ function ChartCard({ title, children, height = 240 }: { title: string; children:
   );
 }
 
-const baseOpts = (titulo?: string) => ({
+const baseOpts = () => ({
   responsive: true, maintainAspectRatio: false,
   plugins: {
     legend: { display: false },
@@ -341,7 +341,7 @@ export default function PanelAdmin() {
               type="range"
               placeholder="Desde — Hasta"
               value={rango}
-              onChange={setRango}
+              onChange={(val) => setRango(val as [Date | null, Date | null])}
               valueFormat="DD/MM/YY"
               size="xs"
               clearable
