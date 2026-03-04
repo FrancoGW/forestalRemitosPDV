@@ -7,8 +7,9 @@ const pool = new Pool({
   password:                process.env.PG_PASSWORD,
   database:                process.env.PG_DATABASE,
   connectionTimeoutMillis: 10000,
-  idleTimeoutMillis:       30000,
-  max:                     10,
+  idleTimeoutMillis:       10000,
+  max:                     3,
+  allowExitOnIdle:         true,
 });
 
 // Las tablas de la app usan IDs simples (sin FK a tablas de producción)
