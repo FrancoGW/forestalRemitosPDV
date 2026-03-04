@@ -4,6 +4,7 @@
   "description": "Backend API para Remitero Forestal",
   "main": "src/index.js",
   "scripts": {
+    "build": "echo 'Sin paso de build'",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js"
   },
