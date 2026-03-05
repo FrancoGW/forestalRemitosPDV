@@ -136,6 +136,13 @@ const baseOpts = () => ({
   },
 });
 
+const toDate = (v: Date | string | null | undefined): Date | null => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 export default function PanelAdmin() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [periodo, setPeriodo] = useState<Periodo>('semana');
@@ -143,12 +150,17 @@ export default function PanelAdmin() {
   const [cargando, setCargando] = useState(true);
 
   const cargar = useCallback(async () => {
+    if (periodo === 'personalizado' && !(rango[0] && rango[1])) return;
     setCargando(true);
     try {
       const params: any = { periodo };
-      if (periodo === 'personalizado' && rango[0] && rango[1]) {
-        params.desde = rango[0].toISOString().slice(0, 10);
-        params.hasta = rango[1].toISOString().slice(0, 10);
+      if (periodo === 'personalizado') {
+        const desde = toDate(rango[0]);
+        const hasta = toDate(rango[1]);
+        if (desde && hasta) {
+          params.desde = desde.toISOString().slice(0, 10);
+          params.hasta = hasta.toISOString().slice(0, 10);
+        }
       }
       const { data } = await api.get('/admin/stats', { params });
       setStats(data);
@@ -341,10 +353,15 @@ export default function PanelAdmin() {
               type="range"
               placeholder="Desde — Hasta"
               value={rango}
-              onChange={(val) => setRango(val as [Date | null, Date | null])}
+              onChange={(val) => {
+                const desde = toDate(val?.[0]);
+                const hasta = toDate(val?.[1]);
+                setRango([desde, hasta]);
+              }}
               valueFormat="DD/MM/YY"
               size="xs"
               clearable
+              w={200}
             />
           )}
         </Group>
