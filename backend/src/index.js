@@ -30,6 +30,19 @@ const PORT = process.env.PORT || 3001;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function limpiarConexionesZombie() {
+  try {
+    await pool.query(`
+      SELECT pg_terminate_backend(pid)
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
+        AND state_change < NOW() - INTERVAL '1 minute'
+    `);
+  } catch (_) { /* silencioso */ }
+}
+
 async function startServer() {
   // Levantar el servidor primero para que Railway no lo mate por health check
   app.listen(PORT, () => {
@@ -50,6 +63,9 @@ async function startServer() {
       await sleep(espera);
     }
   }
+
+  // Limpiar conexiones zombie cada 2 minutos
+  setInterval(limpiarConexionesZombie, 2 * 60 * 1000);
 }
 
 startServer();

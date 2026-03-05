@@ -11,8 +11,9 @@ const dbConfig = {
 const pool = new Pool({
   ...dbConfig,
   connectionTimeoutMillis: 10000,
-  idleTimeoutMillis:       10000,
-  max:                     3,
+  idleTimeoutMillis:       3000,   // Cierra conexiones inactivas en 3s
+  max:                     2,      // Máximo 2 conexiones simultáneas
+  min:                     0,      // No mantener conexiones abiertas en reposo
   allowExitOnIdle:         true,
 });
 
