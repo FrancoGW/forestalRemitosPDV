@@ -34,7 +34,7 @@ const GRIS    = '#adb5bd';
 
 const PALETTE = [VERDE, AZUL, NARANJA, VIOLETA, ROJO, '#12b886', '#fd7e14'];
 
-type Periodo = 'dia' | 'semana' | 'mes' | 'año' | 'personalizado';
+type Periodo = 'historico' | 'dia' | 'semana' | 'mes' | 'año' | 'personalizado';
 
 interface KPI {
   total_remitos: number; emitidos: number;
@@ -145,12 +145,12 @@ const toDate = (v: Date | string | null | undefined): Date | null => {
 
 export default function PanelAdmin() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [periodo, setPeriodo] = useState<Periodo>('semana');
+  const [periodo, setPeriodo] = useState<Periodo>('historico');
   const [rango, setRango] = useState<[Date | null, Date | null]>([null, null]);
   const [cargando, setCargando] = useState(true);
 
   const cargar = useCallback(async () => {
-    if (periodo === 'personalizado' && !(rango[0] && rango[1])) return;
+    if (periodo === 'personalizado' && !(toDate(rango[0]) && toDate(rango[1]))) return;
     setCargando(true);
     try {
       const params: any = { periodo };
@@ -339,8 +339,8 @@ export default function PanelAdmin() {
               value={periodo}
               onChange={(v) => setPeriodo(v as Periodo)}
               data={[
-                { label: 'Hoy', value: 'dia' },
-                { label: '7 días', value: 'semana' },
+                { label: 'Histórico', value: 'historico' },
+                { label: '6 días', value: 'semana' },
                 { label: '30 días', value: 'mes' },
                 { label: '12 meses', value: 'año' },
                 { label: 'Personalizado', value: 'personalizado' },

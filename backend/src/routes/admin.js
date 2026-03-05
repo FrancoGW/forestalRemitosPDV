@@ -5,7 +5,6 @@ const { authMiddleware, soloSuperAdmin } = require('../middleware/auth');
 const router = express.Router();
 router.use(authMiddleware, soloSuperAdmin);
 
-// ── Stats ─────────────────────────────────────────────────────────────────
 router.get('/stats', async (req, res) => {
   try {
     const { periodo = 'semana', desde, hasta } = req.query;
@@ -14,8 +13,14 @@ router.get('/stats', async (req, res) => {
     const fmt = (d) => d.toISOString().slice(0, 10);
 
     let fechaDesde, fechaHasta, groupExpr;
+    let historico = false;
 
     switch (periodo) {
+      case 'historico': {
+        historico = true;
+        groupExpr = `TO_CHAR(fecha, 'YYYY-MM')`;
+        break;
+      }
       case 'dia': {
         fechaDesde = fmt(hoy);
         fechaHasta = fmt(hoy);
@@ -23,7 +28,7 @@ router.get('/stats', async (req, res) => {
         break;
       }
       case 'semana': {
-        const d = new Date(hoy); d.setDate(d.getDate() - 6);
+        const d = new Date(hoy); d.setDate(d.getDate() - 5);
         fechaDesde = fmt(d); fechaHasta = fmt(hoy);
         groupExpr = `TO_CHAR(fecha, 'YYYY-MM-DD')`;
         break;
@@ -43,15 +48,38 @@ router.get('/stats', async (req, res) => {
       case 'personalizado': {
         fechaDesde = desde || fmt(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
         fechaHasta = hasta || fmt(hoy);
-        groupExpr = `TO_CHAR(fecha, 'YYYY-MM-DD')`;
+        // Si el rango supera 60 días agrupar por mes, si no por día
+        const dias = Math.round((new Date(fechaHasta) - new Date(fechaDesde)) / 86400000);
+        groupExpr = dias > 60
+          ? `TO_CHAR(fecha, 'YYYY-MM')`
+          : `TO_CHAR(fecha, 'YYYY-MM-DD')`;
         break;
       }
       default: {
-        const d = new Date(hoy); d.setDate(d.getDate() - 6);
+        const d = new Date(hoy); d.setDate(d.getDate() - 5);
         fechaDesde = fmt(d); fechaHasta = fmt(hoy);
         groupExpr = `TO_CHAR(fecha, 'YYYY-MM-DD')`;
       }
     }
+
+    // Cláusula WHERE de fechas para despacho
+    const dateWhere = historico
+      ? ''
+      : `AND fecha::date >= $1 AND fecha::date <= $2`;
+    const dateParams = historico ? [] : [fechaDesde, fechaHasta];
+
+    // Cláusula WHERE de fechas para app_movimientos
+    const movGroupExpr = historico
+      ? `TO_CHAR(fecha_entrada, 'YYYY-MM')`
+      : (periodo === 'año' || (periodo === 'personalizado' && groupExpr.includes('YYYY-MM')))
+        ? `TO_CHAR(fecha_entrada, 'YYYY-MM')`
+        : periodo === 'dia'
+          ? `TO_CHAR(fecha_entrada, 'HH24:00')`
+          : `TO_CHAR(fecha_entrada, 'YYYY-MM-DD')`;
+
+    const movDateWhere = historico
+      ? ''
+      : `AND fecha_entrada::date >= $1 AND fecha_entrada::date <= $2`;
 
     const [
       remitosLinea,
@@ -74,28 +102,23 @@ router.get('/stats', async (req, res) => {
           ROUND(SUM(CASE WHEN estado_id IN (2,3) THEN (pesobruto - taracamion) ELSE 0 END)::numeric, 2) AS toneladas,
           ROUND(SUM(CASE WHEN estado_id IN (2,3) THEN COALESCE(m3, 0) ELSE 0 END)::numeric, 2)         AS m3_total
         FROM despacho
-        WHERE fecha::date >= $1 AND fecha::date <= $2
+        WHERE 1=1 ${dateWhere}
         GROUP BY 1
         ORDER BY 1 ASC
-      `, [fechaDesde, fechaHasta]),
+      `, dateParams),
 
       // Movimientos de camiones por período
       pool.query(`
         SELECT
-          ${periodo === 'año'
-            ? `TO_CHAR(fecha_entrada, 'YYYY-MM')`
-            : periodo === 'dia'
-              ? `TO_CHAR(fecha_entrada, 'HH24:00')`
-              : `TO_CHAR(fecha_entrada, 'YYYY-MM-DD')`
-          } AS label,
+          ${movGroupExpr} AS label,
           COUNT(*) AS total
         FROM app_movimientos
-        WHERE fecha_entrada::date >= $1 AND fecha_entrada::date <= $2
+        WHERE 1=1 ${movDateWhere}
         GROUP BY 1
         ORDER BY 1 ASC
-      `, [fechaDesde, fechaHasta]),
+      `, dateParams),
 
-      // Toneladas por especie (acumulado total)
+      // Toneladas por especie (filtrado por período)
       pool.query(`
         SELECT
           COALESCE(e.nombre, 'Sin especie') AS especie,
@@ -103,13 +126,13 @@ router.get('/stats', async (req, res) => {
           COUNT(*) AS remitos
         FROM despacho d
         LEFT JOIN especie e ON e.id = d.especie_id
-        WHERE d.estado_id = 3
+        WHERE d.estado_id = 3 ${historico ? '' : 'AND d.fecha::date >= $1 AND d.fecha::date <= $2'}
         GROUP BY e.nombre
         ORDER BY toneladas DESC
         LIMIT 10
-      `, []),
+      `, dateParams),
 
-      // Remitos por estado
+      // Remitos por estado (filtrado por período)
       pool.query(`
         SELECT
           CASE estado_id WHEN 4 THEN 'anulado'
@@ -117,13 +140,14 @@ router.get('/stats', async (req, res) => {
                          ELSE 'borrador' END AS estado,
           COUNT(*) AS total
         FROM despacho
+        WHERE 1=1 ${dateWhere}
         GROUP BY
           CASE estado_id WHEN 4 THEN 'anulado'
                          WHEN 3 THEN 'emitido'
                          ELSE 'borrador' END
-      `, []),
+      `, dateParams),
 
-      // Top 6 clientes por toneladas
+      // Top 6 clientes por toneladas (filtrado por período)
       pool.query(`
         SELECT
           COALESCE(c.nombre1, 'Sin cliente') AS cliente,
@@ -131,13 +155,13 @@ router.get('/stats', async (req, res) => {
           COUNT(*) AS remitos
         FROM despacho d
         LEFT JOIN cliente c ON c.id = d.cliente_id
-        WHERE d.estado_id = 3
+        WHERE d.estado_id = 3 ${historico ? '' : 'AND d.fecha::date >= $1 AND d.fecha::date <= $2'}
         GROUP BY c.nombre1
         ORDER BY toneladas DESC
         LIMIT 6
-      `, []),
+      `, dateParams),
 
-      // Toneladas y M³ por producto
+      // Toneladas y M³ por producto (filtrado por período)
       pool.query(`
         SELECT
           COALESCE(p.nombre, 'Sin producto') AS producto,
@@ -145,33 +169,35 @@ router.get('/stats', async (req, res) => {
           ROUND(SUM(COALESCE(d.m3, 0))::numeric, 2)           AS m3
         FROM despacho d
         LEFT JOIN producto p ON p.id = d.producto_id
-        WHERE d.estado_id = 3
+        WHERE d.estado_id = 3 ${historico ? '' : 'AND d.fecha::date >= $1 AND d.fecha::date <= $2'}
         GROUP BY p.nombre
         ORDER BY toneladas DESC
-      `, []),
+      `, dateParams),
 
-      // KPIs totales
+      // KPIs filtrados por período
       pool.query(`
         SELECT
-          COUNT(*)                                                                              AS total_remitos,
-          SUM(CASE WHEN estado_id = 3 THEN 1 ELSE 0 END)                                      AS emitidos,
+          COUNT(*) AS total_remitos,
+          SUM(CASE WHEN estado_id = 3 THEN 1 ELSE 0 END) AS emitidos,
           ROUND(SUM(CASE WHEN estado_id = 3 THEN (pesobruto - taracamion) ELSE 0 END)::numeric, 1) AS total_toneladas,
-          ROUND(SUM(CASE WHEN estado_id = 3 THEN COALESCE(m3, 0) ELSE 0 END)::numeric, 1)         AS total_m3
+          ROUND(SUM(CASE WHEN estado_id = 3 THEN COALESCE(m3, 0) ELSE 0 END)::numeric, 1) AS total_m3
         FROM despacho
-      `, []),
+        WHERE 1=1 ${dateWhere}
+      `, dateParams),
 
-      // KPI PDVs activos
+      // KPI PDVs activos (siempre global)
       pool.query(`SELECT COUNT(*) AS total FROM puntoventa WHERE mostrar = true`, []),
 
-      // KPI movimientos de camiones
+      // KPI movimientos (filtrado por período)
       pool.query(`
         SELECT
           COUNT(*) AS total_movimientos,
           SUM(CASE WHEN estado = 'en_predio' THEN 1 ELSE 0 END) AS en_predio_ahora
         FROM app_movimientos
-      `, []),
+        WHERE 1=1 ${movDateWhere}
+      `, dateParams),
 
-      // Actividad por PDV
+      // Actividad por PDV (filtrado por período)
       pool.query(`
         SELECT
           pv.nombre AS pdv, pv.numero,
@@ -179,10 +205,11 @@ router.get('/stats', async (req, res) => {
           ROUND(SUM(CASE WHEN d.estado_id = 3 THEN (d.pesobruto - d.taracamion) ELSE 0 END)::numeric, 2) AS toneladas
         FROM puntoventa pv
         LEFT JOIN despacho d ON d.puntoventa_id = pv.id
+          ${historico ? '' : 'AND d.fecha::date >= $1 AND d.fecha::date <= $2'}
         GROUP BY pv.id, pv.nombre, pv.numero
         ORDER BY toneladas DESC NULLS LAST
         LIMIT 20
-      `, []),
+      `, dateParams),
     ]);
 
     const kpis = kpisRow.rows[0];
