@@ -30,6 +30,31 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Lista de todos los usuarios con su rol y PDV asociado
+router.get('/usuarios', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        u.id,
+        u.codigoacesso   AS username,
+        u.nome           AS nombre,
+        u.habilitado,
+        u.superusuario,
+        pv.id            AS pdv_id,
+        pv.numero        AS pdv_numero,
+        pv.nombre        AS pdv_nombre
+      FROM usuario u
+      LEFT JOIN app_usuario_pdv aup ON aup.usuario_id = u.id
+      LEFT JOIN puntoventa pv       ON pv.id = aup.puntoventa_id
+      ORDER BY u.superusuario DESC, u.codigoacesso ASC
+    `);
+    res.json(rows);
+  } catch (e) {
+    console.error('[GET /pdv/usuarios]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Lista de usuarios disponibles para asignar a un PDV
 router.get('/usuarios-disponibles', async (req, res) => {
   try {

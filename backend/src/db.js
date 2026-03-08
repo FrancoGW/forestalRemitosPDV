@@ -48,6 +48,18 @@ async function initDB() {
       )
     `);
 
+    // Llaveros NFC: cada llavero tiene un uid_nfc único y puede estar asociado a un camión
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_camion_nfc (
+        id         SERIAL PRIMARY KEY,
+        uid_nfc    VARCHAR(100) NOT NULL UNIQUE,
+        camion_id  INTEGER REFERENCES camion(id) ON DELETE SET NULL,
+        alias      VARCHAR(100),
+        activo     BOOLEAN NOT NULL DEFAULT TRUE,
+        creado_en  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS app_movimientos (
         id            SERIAL PRIMARY KEY,

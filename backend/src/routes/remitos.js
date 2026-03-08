@@ -21,43 +21,59 @@ function toEstadoLabel(estado_id) {
 // Query base con todos los JOINs para enriquecer la respuesta
 const SELECT_DESPACHO = `
   SELECT
-    d.*,
-    ROUND((d.pesobruto - d.taracamion)::numeric, 3)       AS toneladas_ingresada,
+    d.id,
+    d.puntoventa_id,
+    d.nroremito                                              AS numero,
+    d.fecha                                                  AS fecha_emision,
+    d.fechafacturacion                                       AS fecha_facturacion,
+    d.rodal,
+    d.taracamion,
+    d.pesobruto,
+    d.volumencliente,
+    d.m3,
+    d.largos,
+    d.largo,
+    d.conductor,
+    d.dniconductor,
+    d.distancia,
+    d.observaciones,
+    d.estado_id,
+    ROUND((d.pesobruto - d.taracamion)::numeric, 3)          AS toneladas_ingresada,
     CASE d.estado_id WHEN 4 THEN 'anulado'
                      WHEN 3 THEN 'emitido'
-                     ELSE        'borrador' END             AS estado,
-    d.nroremito                                             AS numero,
-    d.fecha                                                 AS fecha_emision,
-    pv.nombre    AS pdv_nombre,
-    pv.numero    AS pdv_numero,
-    cl.nombre1   AS cliente,
-    pr.nombre    AS predio,
-    prod.nombre  AS producto,
-    esp.nombre   AS especie,
-    bal.nombre   AS balanza,
-    et.nombre1   AS empresa_transporte,
-    cam.patente  AS camion_patente,
-    cat.nombre   AS categoria_nombre,
-    sc.nombre    AS subcategoria_nombre,
-    er.nombre    AS estado_nombre,
+                     ELSE        'borrador' END              AS estado,
+    pv.id       AS pdv_id,
+    pv.numero   AS pdv_numero,
+    pv.nombre   AS pdv_nombre,
+    cl.nombre1  AS cliente,
+    pr.nombre   AS predio,
+    prod.nombre AS producto,
+    esp.nombre  AS especie,
+    bal.nombre  AS balanza,
+    et.nombre1  AS empresa_transporte,
+    cam.patente AS camion_patente,
+    acop.patente AS acoplado_patente,
+    cat.nombre  AS categoria_nombre,
+    sc.nombre   AS subcategoria_nombre,
     elab.nombre1 AS elaborador_nombre,
     extr.nombre1 AS extractor_nombre,
     carg.nombre1 AS cargador_nombre
   FROM despacho d
-  LEFT JOIN puntoventa        pv   ON pv.id   = d.puntoventa_id
-  LEFT JOIN cliente           cl   ON cl.id   = d.cliente_id
-  LEFT JOIN predio            pr   ON pr.id   = d.predio_id
-  LEFT JOIN producto          prod ON prod.id = d.producto_id
-  LEFT JOIN especie           esp  ON esp.id  = d.especie_id
-  LEFT JOIN balanza           bal  ON bal.id  = d.balanza_id
-  LEFT JOIN empresatransporte et   ON et.id   = d.empresatransporte_id
-  LEFT JOIN camion            cam  ON cam.id  = d.camion_id
-  LEFT JOIN categoria         cat  ON cat.id  = d.categoria_id
-  LEFT JOIN subcategoria      sc   ON sc.id   = d.subcategoria_id
-  LEFT JOIN estadoremito      er   ON er.id   = d.estado_id
-  LEFT JOIN cliente           elab ON elab.id = d.elaborador_id
-  LEFT JOIN cliente           extr ON extr.id = d.extractor_id
-  LEFT JOIN cliente           carg ON carg.id = d.cargador_id
+  LEFT JOIN puntoventa        pv   ON pv.id    = d.puntoventa_id
+  LEFT JOIN cliente           cl   ON cl.id    = d.cliente_id
+  LEFT JOIN predio            pr   ON pr.id    = d.predio_id
+  LEFT JOIN producto          prod ON prod.id  = d.producto_id
+  LEFT JOIN especie           esp  ON esp.id   = d.especie_id
+  LEFT JOIN balanza           bal  ON bal.id   = d.balanza_id
+  LEFT JOIN empresatransporte et   ON et.id    = d.empresatransporte_id
+  LEFT JOIN camion            cam  ON cam.id   = d.camion_id
+  LEFT JOIN camion            acop ON acop.id  = d.acopladocamion_id
+  LEFT JOIN categoria         cat  ON cat.id   = d.categoria_id
+  LEFT JOIN subcategoria      sc   ON sc.id    = d.subcategoria_id
+  LEFT JOIN estadoremito      er   ON er.id    = d.estado_id
+  LEFT JOIN cliente           elab ON elab.id  = d.elaborador_id
+  LEFT JOIN cliente           extr ON extr.id  = d.extractor_id
+  LEFT JOIN cliente           carg ON carg.id  = d.cargador_id
 `;
 
 router.get('/', async (req, res) => {

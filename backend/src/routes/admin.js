@@ -92,6 +92,8 @@ router.get('/stats', async (req, res) => {
       kpiPdvs,
       kpiMovs,
       porPdv,
+      topCamiones,
+      camionePorPredio,
     ] = await Promise.all([
 
       // Remitos + toneladas por período
@@ -180,7 +182,8 @@ router.get('/stats', async (req, res) => {
           COUNT(*) AS total_remitos,
           SUM(CASE WHEN estado_id = 3 THEN 1 ELSE 0 END) AS emitidos,
           ROUND(SUM(CASE WHEN estado_id = 3 THEN (pesobruto - taracamion) ELSE 0 END)::numeric, 1) AS total_toneladas,
-          ROUND(SUM(CASE WHEN estado_id = 3 THEN COALESCE(m3, 0) ELSE 0 END)::numeric, 1) AS total_m3
+          ROUND(SUM(CASE WHEN estado_id = 3 THEN COALESCE(m3, 0) ELSE 0 END)::numeric, 1) AS total_m3,
+          COUNT(DISTINCT camion_id) AS camiones_unicos
         FROM despacho
         WHERE 1=1 ${dateWhere}
       `, dateParams),
@@ -209,6 +212,34 @@ router.get('/stats', async (req, res) => {
         GROUP BY pv.id, pv.nombre, pv.numero
         ORDER BY toneladas DESC NULLS LAST
         LIMIT 20
+      `, dateParams),
+
+      // Top camiones despachados (patente + cantidad de despachos + toneladas)
+      pool.query(`
+        SELECT
+          COALESCE(cam.patente, 'Sin patente') AS patente,
+          COUNT(d.id) AS despachos,
+          ROUND(SUM(CASE WHEN d.estado_id = 3 THEN (d.pesobruto - d.taracamion) ELSE 0 END)::numeric, 1) AS toneladas
+        FROM despacho d
+        LEFT JOIN camion cam ON cam.id = d.camion_id
+        WHERE d.camion_id IS NOT NULL ${dateWhere}
+        GROUP BY cam.patente
+        ORDER BY despachos DESC
+        LIMIT 10
+      `, dateParams),
+
+      // Camiones despachados por predio (top 10 predios con más despachos únicos de camiones)
+      pool.query(`
+        SELECT
+          COALESCE(pr.nombre, 'Sin predio') AS predio,
+          COUNT(DISTINCT d.camion_id)        AS camiones_unicos,
+          COUNT(d.id)                        AS despachos
+        FROM despacho d
+        LEFT JOIN predio pr ON pr.id = d.predio_id
+        WHERE d.camion_id IS NOT NULL ${dateWhere}
+        GROUP BY pr.nombre
+        ORDER BY despachos DESC
+        LIMIT 10
       `, dateParams),
     ]);
 
@@ -255,11 +286,22 @@ router.get('/stats', async (req, res) => {
         remitos:   ni(r.remitos),
         toneladas: n(r.toneladas),
       })),
+      topCamiones: topCamiones.rows.map((r) => ({
+        patente:   r.patente,
+        despachos: ni(r.despachos),
+        toneladas: n(r.toneladas),
+      })),
+      camionePorPredio: camionePorPredio.rows.map((r) => ({
+        predio:          r.predio,
+        camiones_unicos: ni(r.camiones_unicos),
+        despachos:       ni(r.despachos),
+      })),
       kpis: {
         total_remitos:     ni(kpis.total_remitos),
         emitidos:          ni(kpis.emitidos),
         total_toneladas:   n(kpis.total_toneladas),
         total_m3:          n(kpis.total_m3),
+        camiones_unicos:   ni(kpis.camiones_unicos),
         total_movimientos: ni(kpiMovs.rows[0].total_movimientos),
         en_predio_ahora:   ni(kpiMovs.rows[0].en_predio_ahora),
         total_pdvs:        ni(kpiPdvs.rows[0].total),

@@ -39,6 +39,7 @@ type Periodo = 'historico' | 'dia' | 'semana' | 'mes' | 'año' | 'personalizado'
 interface KPI {
   total_remitos: number; emitidos: number;
   total_toneladas: number; total_m3: number;
+  camiones_unicos: number;
   total_movimientos: number; en_predio_ahora: number; total_pdvs: number;
 }
 
@@ -53,6 +54,8 @@ interface Stats {
   topClientes: { cliente: string; toneladas: number; remitos: number }[];
   porProducto: { producto: string; m3: number; toneladas: number }[];
   porPdv: { pdv: string; numero: number; remitos: number; toneladas: number }[];
+  topCamiones: { patente: string; despachos: number; toneladas: number }[];
+  camionePorPredio: { predio: string; camiones_unicos: number; despachos: number }[];
 }
 
 function KpiCard({ label, value, unit, sub, icon, color, size = 'md' }: {
@@ -283,6 +286,42 @@ export default function PanelAdmin() {
     }],
   };
 
+  const barTopCamiones = {
+    labels: stats?.topCamiones.map(c => c.patente) ?? [],
+    datasets: [
+      {
+        label: 'Despachos',
+        data: stats?.topCamiones.map(c => c.despachos) ?? [],
+        backgroundColor: NARANJA,
+        borderRadius: 3,
+      },
+      {
+        label: 'Toneladas',
+        data: stats?.topCamiones.map(c => c.toneladas) ?? [],
+        backgroundColor: AZUL,
+        borderRadius: 3,
+      },
+    ],
+  };
+
+  const barCamionPredio = {
+    labels: stats?.camionePorPredio.map(p => p.predio) ?? [],
+    datasets: [
+      {
+        label: 'Despachos',
+        data: stats?.camionePorPredio.map(p => p.despachos) ?? [],
+        backgroundColor: VERDE,
+        borderRadius: 3,
+      },
+      {
+        label: 'Camiones únicos',
+        data: stats?.camionePorPredio.map(p => p.camiones_unicos) ?? [],
+        backgroundColor: VIOLETA,
+        borderRadius: 3,
+      },
+    ],
+  };
+
   const optsLinea = {
     ...baseOpts(),
     plugins: {
@@ -411,7 +450,7 @@ export default function PanelAdmin() {
       </SimpleGrid>
 
       {/* KPIs — fila secundaria */}
-      <SimpleGrid cols={{ base: 3, sm: 3 }} spacing="md">
+      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
         <KpiCard
           label="PDVs activos"
           value={fmt(k?.total_pdvs)}
@@ -424,6 +463,14 @@ export default function PanelAdmin() {
           value={fmt(k?.en_predio_ahora)}
           icon={<IconTruck size={13} strokeWidth={1.8} />}
           color={ROJO}
+          size="sm"
+        />
+        <KpiCard
+          label="Camiones únicos"
+          value={fmt(k?.camiones_unicos)}
+          sub="con al menos un despacho"
+          icon={<IconTruck size={13} strokeWidth={1.8} />}
+          color={NARANJA}
           size="sm"
         />
         <KpiCard
@@ -482,6 +529,20 @@ export default function PanelAdmin() {
       <ChartCard title="Toneladas por Punto de Venta" height={200}>
         <Bar data={barPdv} options={baseOpts()} />
       </ChartCard>
+
+      {/* Fila 5: Camiones */}
+      <Grid gutter="md">
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <ChartCard title="Top camiones — Despachos y toneladas" height={280}>
+            <Bar data={barTopCamiones} options={optsBarMulti} />
+          </ChartCard>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 6 }}>
+          <ChartCard title="Despachos y camiones únicos por predio" height={280}>
+            <Bar data={barCamionPredio} options={optsBarMulti} />
+          </ChartCard>
+        </Grid.Col>
+      </Grid>
     </Stack>
   );
 }
