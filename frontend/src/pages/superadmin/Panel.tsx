@@ -138,9 +138,10 @@ const baseOpts = () => ({
 
 const toDate = (v: Date | string | null | undefined): Date | null => {
   if (!v) return null;
-  if (v instanceof Date) return v;
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
+  const d = v instanceof Date ? v : new Date(v);
+  if (isNaN(d.getTime())) return null;
+  // Normalizar a mediodía local para evitar desfases por timezone
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
 };
 
 // Evita el desfase UTC: usa la fecha local en vez de .toISOString()
