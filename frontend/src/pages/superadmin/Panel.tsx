@@ -143,6 +143,10 @@ const toDate = (v: Date | string | null | undefined): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
+// Evita el desfase UTC: usa la fecha local en vez de .toISOString()
+const toLocalStr = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export default function PanelAdmin() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [periodo, setPeriodo] = useState<Periodo>('historico');
@@ -150,16 +154,18 @@ export default function PanelAdmin() {
   const [cargando, setCargando] = useState(true);
 
   const cargar = useCallback(async () => {
-    if (periodo === 'personalizado' && !(toDate(rango[0]) && toDate(rango[1]))) return;
+    // Para personalizado alcanza con tener la fecha de inicio (un solo día válido)
+    if (periodo === 'personalizado' && !toDate(rango[0])) return;
     setCargando(true);
     try {
       const params: any = { periodo };
       if (periodo === 'personalizado') {
         const desde = toDate(rango[0]);
-        const hasta = toDate(rango[1]);
+        // Si no hay fecha final, usar la misma que el inicio (un solo día)
+        const hasta = toDate(rango[1]) ?? desde;
         if (desde && hasta) {
-          params.desde = desde.toISOString().slice(0, 10);
-          params.hasta = hasta.toISOString().slice(0, 10);
+          params.desde = toLocalStr(desde);
+          params.hasta = toLocalStr(hasta);
         }
       }
       const { data } = await api.get('/admin/stats', { params });
@@ -362,6 +368,7 @@ export default function PanelAdmin() {
               size="xs"
               clearable
               w={200}
+              allowSingleDateInRange
             />
           )}
         </Group>
