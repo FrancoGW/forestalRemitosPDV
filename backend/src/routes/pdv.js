@@ -8,11 +8,15 @@ router.use(authMiddleware, soloSuperAdmin);
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT pv.*,
-        u.nome         AS usuario_nombre,
-        u.codigoacesso AS usuario_username,
-        u.habilitado   AS usuario_activo,
-        u.id           AS usuario_id
+      SELECT
+        pv.id,
+        pv.numero,
+        pv.nombre,
+        pv.mostrar                AS activo,
+        u.id                      AS usuario_id,
+        u.nome                    AS usuario_nombre,
+        u.codigoacesso            AS usuario_username,
+        u.habilitado              AS usuario_activo
       FROM puntoventa pv
       LEFT JOIN app_usuario_pdv aup ON aup.puntoventa_id = pv.id
       LEFT JOIN usuario u           ON u.id = aup.usuario_id
@@ -22,6 +26,39 @@ router.get('/', async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error('[GET /pdv]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Lista de usuarios disponibles para asignar a un PDV
+router.get('/usuarios-disponibles', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.id, u.nome AS nombre, u.codigoacesso AS username, u.habilitado
+      FROM usuario u
+      WHERE u.superusuario = false
+      ORDER BY u.codigoacesso ASC
+    `);
+    res.json(rows);
+  } catch (e) {
+    console.error('[GET /pdv/usuarios-disponibles]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Asignar un usuario existente a un PDV
+router.post('/:id/asignar-usuario', async (req, res) => {
+  const { usuario_id } = req.body;
+  if (!usuario_id) return res.status(400).json({ error: 'usuario_id requerido' });
+  try {
+    await pool.query(`
+      INSERT INTO app_usuario_pdv (usuario_id, puntoventa_id)
+      VALUES ($1, $2)
+      ON CONFLICT (usuario_id) DO UPDATE SET puntoventa_id = $2
+    `, [usuario_id, req.params.id]);
+    res.json({ mensaje: 'Usuario asignado al PDV' });
+  } catch (e) {
+    console.error('[POST /pdv/:id/asignar-usuario]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

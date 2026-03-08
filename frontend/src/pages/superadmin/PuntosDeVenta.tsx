@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import {
   Title, Text, Stack, Button, Group, Paper, Badge,
   Modal, TextInput, PasswordInput, NumberInput,
-  Table, ActionIcon, Tooltip, Skeleton, Alert,
+  Table, ActionIcon, Tooltip, Skeleton, Alert, Select, Divider,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import {
-  IconPlus, IconEdit, IconTrash, IconAlertCircle, IconToggleLeft, IconToggleRight,
+  IconPlus, IconEdit, IconTrash, IconAlertCircle,
+  IconToggleLeft, IconToggleRight, IconUserCheck,
 } from '@tabler/icons-react';
 import api from '../../api/client';
 import { notifications } from '@mantine/notifications';
@@ -16,28 +17,35 @@ interface PDV {
   id: number;
   numero: number;
   nombre: string;
-  usuario_username: string;
-  usuario_nombre: string;
-  activo: number;
-  creado_en: string;
+  activo: boolean;
+  usuario_id: number | null;
+  usuario_nombre: string | null;
+  usuario_username: string | null;
+  usuario_activo: boolean | null;
+}
+
+interface UsuarioDisponible {
+  id: number;
+  nombre: string;
+  username: string;
+  habilitado: boolean;
 }
 
 export default function PuntosDeVenta() {
   const [pdvs, setPdvs] = useState<PDV[]>([]);
+  const [usuariosDisp, setUsuariosDisp] = useState<UsuarioDisponible[]>([]);
   const [cargando, setCargando] = useState(true);
   const [editando, setEditando] = useState<PDV | null>(null);
+  const [asignandoPdv, setAsignandoPdv] = useState<PDV | null>(null);
   const [modalAbierto, { open, close }] = useDisclosure(false);
+  const [modalAsignar, { open: abrirAsignar, close: cerrarAsignar }] = useDisclosure(false);
+  const [usuarioSeleccionado, setUsuarioSeleccionado] = useState<string | null>(null);
 
   const form = useForm({
-    initialValues: {
-      numero: 1,
-      nombre: '',
-      username: '',
-      password: '',
-    },
+    initialValues: { numero: 1, nombre: '', username: '', password: '' },
     validate: {
-      numero: (v) => (v > 0 ? null : 'Número inválido'),
-      nombre: (v) => (v.trim().length > 2 ? null : 'Nombre muy corto'),
+      numero:   (v) => (v > 0 ? null : 'Número inválido'),
+      nombre:   (v) => (v.trim().length > 2 ? null : 'Nombre muy corto'),
       username: (v) => (v.trim().length >= 3 ? null : 'Mínimo 3 caracteres'),
       password: (v) => (!editando && v.length < 4 ? 'Mínimo 4 caracteres' : null),
     },
@@ -46,10 +54,14 @@ export default function PuntosDeVenta() {
   async function cargar() {
     setCargando(true);
     try {
-      const { data } = await api.get('/pdv');
-      setPdvs(data);
+      const [pdvRes, uRes] = await Promise.all([
+        api.get('/pdv'),
+        api.get('/pdv/usuarios-disponibles'),
+      ]);
+      setPdvs(pdvRes.data);
+      setUsuariosDisp(uRes.data);
     } catch {
-      notifications.show({ message: 'Error al cargar PDVs', color: 'red' });
+      notifications.show({ message: 'Error al cargar datos', color: 'red' });
     } finally {
       setCargando(false);
     }
@@ -65,8 +77,14 @@ export default function PuntosDeVenta() {
 
   function abrirEditar(pdv: PDV) {
     setEditando(pdv);
-    form.setValues({ numero: pdv.numero, nombre: pdv.nombre, username: pdv.usuario_username, password: '' });
+    form.setValues({ numero: pdv.numero, nombre: pdv.nombre, username: pdv.usuario_username ?? '', password: '' });
     open();
+  }
+
+  function abrirModalAsignar(pdv: PDV) {
+    setAsignandoPdv(pdv);
+    setUsuarioSeleccionado(null);
+    abrirAsignar();
   }
 
   async function guardar(values: typeof form.values) {
@@ -87,6 +105,18 @@ export default function PuntosDeVenta() {
     }
   }
 
+  async function asignarUsuario() {
+    if (!asignandoPdv || !usuarioSeleccionado) return;
+    try {
+      await api.post(`/pdv/${asignandoPdv.id}/asignar-usuario`, { usuario_id: Number(usuarioSeleccionado) });
+      notifications.show({ message: 'Usuario asignado correctamente', color: 'green' });
+      cerrarAsignar();
+      cargar();
+    } catch (e: any) {
+      notifications.show({ message: e?.response?.data?.error || 'Error al asignar', color: 'red' });
+    }
+  }
+
   async function toggleActivo(pdv: PDV) {
     try {
       await api.put(`/pdv/${pdv.id}`, { activo: !pdv.activo });
@@ -97,10 +127,10 @@ export default function PuntosDeVenta() {
   }
 
   async function eliminar(pdv: PDV) {
-    if (!confirm(`¿Eliminar el PDV "${pdv.nombre}"? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Desactivar el PDV "${pdv.nombre}"?`)) return;
     try {
       await api.delete(`/pdv/${pdv.id}`);
-      notifications.show({ message: 'Punto de venta eliminado', color: 'orange' });
+      notifications.show({ message: 'Punto de venta desactivado', color: 'orange' });
       cargar();
     } catch (e: any) {
       notifications.show({ message: e?.response?.data?.error || 'Error al eliminar', color: 'red' });
@@ -114,7 +144,14 @@ export default function PuntosDeVenta() {
       </Table.Td>
       <Table.Td fw={500}>{pdv.nombre}</Table.Td>
       <Table.Td>
-        <Text size="sm" c="dimmed" ff="monospace">{pdv.usuario_username}</Text>
+        {pdv.usuario_username ? (
+          <Stack gap={2}>
+            <Text size="sm" ff="monospace">{pdv.usuario_username}</Text>
+            <Text size="xs" c="dimmed">{pdv.usuario_nombre}</Text>
+          </Stack>
+        ) : (
+          <Badge color="orange" variant="light" size="sm">Sin usuario asignado</Badge>
+        )}
       </Table.Td>
       <Table.Td>
         <Badge color={pdv.activo ? 'green' : 'gray'} variant="dot">
@@ -122,13 +159,15 @@ export default function PuntosDeVenta() {
         </Badge>
       </Table.Td>
       <Table.Td>
-        <Text size="xs" c="dimmed">{new Date(pdv.creado_en).toLocaleDateString('es-AR')}</Text>
-      </Table.Td>
-      <Table.Td>
         <Group gap="xs">
           <Tooltip label="Editar">
             <ActionIcon variant="light" color="blue" onClick={() => abrirEditar(pdv)}>
               <IconEdit size={15} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Asignar usuario existente">
+            <ActionIcon variant="light" color="violet" onClick={() => abrirModalAsignar(pdv)}>
+              <IconUserCheck size={15} />
             </ActionIcon>
           </Tooltip>
           <Tooltip label={pdv.activo ? 'Desactivar' : 'Activar'}>
@@ -165,7 +204,7 @@ export default function PuntosDeVenta() {
           </Stack>
         ) : pdvs.length === 0 ? (
           <Alert icon={<IconAlertCircle size={16} />} m="md" color="blue" variant="light">
-            No hay puntos de venta creados aún. Hacé clic en "Nuevo PDV" para comenzar.
+            No hay puntos de venta. Hacé clic en "Nuevo PDV" para comenzar.
           </Alert>
         ) : (
           <Table striped highlightOnHover>
@@ -175,7 +214,6 @@ export default function PuntosDeVenta() {
                 <Table.Th>Nombre</Table.Th>
                 <Table.Th>Usuario</Table.Th>
                 <Table.Th>Estado</Table.Th>
-                <Table.Th>Creado</Table.Th>
                 <Table.Th>Acciones</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -184,12 +222,12 @@ export default function PuntosDeVenta() {
         )}
       </Paper>
 
+      {/* Modal: crear/editar PDV */}
       <Modal
         opened={modalAbierto}
         onClose={close}
         title={<Text fw={600} size="sm">{editando ? 'Editar Punto de Venta' : 'Nuevo Punto de Venta'}</Text>}
-        centered
-        size="sm"
+        centered size="sm"
       >
         <form onSubmit={form.onSubmit(guardar)}>
           <Stack gap="md">
@@ -197,8 +235,7 @@ export default function PuntosDeVenta() {
               <NumberInput
                 label="Número de PDV"
                 placeholder="Ej: 13"
-                min={1}
-                size="sm"
+                min={1} size="sm"
                 {...form.getInputProps('numero')}
               />
             )}
@@ -208,6 +245,7 @@ export default function PuntosDeVenta() {
               size="sm"
               {...form.getInputProps('nombre')}
             />
+            <Divider label="Credenciales de acceso" labelPosition="left" />
             <TextInput
               label="Usuario"
               placeholder="Ej: pdv13"
@@ -231,6 +269,41 @@ export default function PuntosDeVenta() {
             </Group>
           </Stack>
         </form>
+      </Modal>
+
+      {/* Modal: asignar usuario existente */}
+      <Modal
+        opened={modalAsignar}
+        onClose={cerrarAsignar}
+        title={<Text fw={600} size="sm">Asignar usuario — PDV {asignandoPdv?.numero} {asignandoPdv?.nombre}</Text>}
+        centered size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Seleccioná un usuario existente del sistema para asociarlo a este punto de venta.
+          </Text>
+          <Select
+            label="Usuario"
+            placeholder="Buscar usuario..."
+            searchable
+            data={usuariosDisp.map((u) => ({
+              value: String(u.id),
+              label: `${u.username} — ${u.nombre}${!u.habilitado ? ' (inactivo)' : ''}`,
+            }))}
+            value={usuarioSeleccionado}
+            onChange={setUsuarioSeleccionado}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" size="sm" onClick={cerrarAsignar}>Cancelar</Button>
+            <Button
+              color="violet" size="sm"
+              disabled={!usuarioSeleccionado}
+              onClick={asignarUsuario}
+            >
+              Asignar
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     </Stack>
   );
