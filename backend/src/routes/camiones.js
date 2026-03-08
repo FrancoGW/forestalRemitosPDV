@@ -13,39 +13,49 @@ router.get('/', async (req, res) => {
     const limite = Math.min(100, parseInt(req.query.limite) || 50);
     const offset = (pagina - 1) * limite;
 
+    const params = buscar ? [`%${buscar}%`, limite, offset] : [limite, offset];
     const whereClause = buscar ? `WHERE c.patente ILIKE $1` : '';
-    const params      = buscar ? [`%${buscar}%`] : [];
-
-    const countParams = buscar ? [`%${buscar}%`] : [];
-    const { rows: countRows } = await pool.query(
-      `SELECT COUNT(*) AS total FROM camion c ${whereClause}`,
-      countParams
-    );
-    const total = parseInt(countRows[0].total);
-
-    const limitOffsetParams = buscar ? [`%${buscar}%`, limite, offset] : [limite, offset];
     const limitIdx  = buscar ? 2 : 1;
     const offsetIdx = buscar ? 3 : 2;
 
     const { rows } = await pool.query(`
       SELECT
         c.id, c.patente, c.marca, c.modelo,
-        nfc.id        AS nfc_id,
-        nfc.uid_nfc   AS nfc_uid,
-        nfc.alias     AS nfc_alias,
-        nfc.activo    AS nfc_activo,
-        (SELECT COUNT(*) FROM app_movimientos m WHERE m.camion_id = c.id)                            AS total_visitas,
-        (SELECT COUNT(*) FROM app_movimientos m WHERE m.camion_id = c.id AND m.estado = 'en_predio') AS en_predio,
-        (SELECT COUNT(*) FROM despacho d WHERE d.camion_id = c.id)                                   AS total_remitos,
-        (SELECT COUNT(*) FROM despacho d WHERE d.camion_id = c.id AND d.estado_id = 3)               AS remitos_emitidos
+        nfc.id      AS nfc_id,
+        nfc.uid_nfc AS nfc_uid,
+        nfc.alias   AS nfc_alias,
+        nfc.activo  AS nfc_activo,
+        COALESCE(mov.total_visitas, 0)  AS total_visitas,
+        COALESCE(mov.en_predio, 0)      AS en_predio,
+        COALESCE(rem.total_remitos, 0)  AS total_remitos,
+        COALESCE(rem.remitos_emitidos, 0) AS remitos_emitidos,
+        COUNT(*) OVER() AS _total
       FROM camion c
       LEFT JOIN app_camion_nfc nfc ON nfc.camion_id = c.id AND nfc.activo = TRUE
+      LEFT JOIN (
+        SELECT camion_id,
+          COUNT(*)                                           AS total_visitas,
+          SUM(CASE WHEN estado = 'en_predio' THEN 1 ELSE 0 END) AS en_predio
+        FROM app_movimientos
+        GROUP BY camion_id
+      ) mov ON mov.camion_id = c.id
+      LEFT JOIN (
+        SELECT camion_id,
+          COUNT(*)                                              AS total_remitos,
+          SUM(CASE WHEN estado_id = 3 THEN 1 ELSE 0 END)       AS remitos_emitidos
+        FROM despacho
+        WHERE camion_id IS NOT NULL
+        GROUP BY camion_id
+      ) rem ON rem.camion_id = c.id
       ${whereClause}
       ORDER BY c.patente ASC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
-    `, limitOffsetParams);
+    `, params);
 
-    res.json({ data: rows, total, pagina, limite, paginas: Math.ceil(total / limite) });
+    const total = rows.length ? parseInt(rows[0]._total) : 0;
+    const data  = rows.map(({ _total: _, ...r }) => r);
+
+    res.json({ data, total, pagina, limite, paginas: Math.ceil(total / limite) });
   } catch (e) {
     console.error('[GET /camiones]', e.message);
     res.status(500).json({ error: e.message });
