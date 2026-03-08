@@ -140,8 +140,11 @@ const toDate = (v: Date | string | null | undefined): Date | null => {
   if (!v) return null;
   const d = v instanceof Date ? v : new Date(v);
   if (isNaN(d.getTime())) return null;
-  // Normalizar a mediodía local para evitar desfases por timezone
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+  // Mantine puede crear fechas como UTC midnight (new Date('YYYY-MM-DD')).
+  // En UTC-3 eso sería el día anterior a las 21hs, por eso siempre
+  // usamos los componentes UTC para obtener la fecha del calendario deseada
+  // y luego la creamos como mediodía local para evitar cualquier desfase.
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
 };
 
 // Evita el desfase UTC: usa la fecha local en vez de .toISOString()
