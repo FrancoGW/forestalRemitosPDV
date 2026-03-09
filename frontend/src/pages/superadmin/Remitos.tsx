@@ -80,6 +80,11 @@ export default function Remitos() {
   const rows = useMemo(() => filtrados.map((r) => (
     <Table.Tr key={r.id}>
       <Table.Td>
+        <Text size="sm" c="dimmed">
+          {new Date(r.fecha_emision).toLocaleDateString('es-AR')}
+        </Text>
+      </Table.Td>
+      <Table.Td>
         <Group gap="xs">
           <Badge variant="outline" size="sm">PDV {r.pdv_numero}</Badge>
           <Text fw={600}>#{r.numero}</Text>
@@ -90,11 +95,6 @@ export default function Remitos() {
       <Table.Td>{r.especie} / {r.producto}</Table.Td>
       <Table.Td>
         <Text fw={500}>{r.toneladas_ingresada != null ? Number(r.toneladas_ingresada).toFixed(2) : '—'} tn</Text>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" c="dimmed">
-          {new Date(r.fecha_emision).toLocaleDateString('es-AR')}
-        </Text>
       </Table.Td>
       <Table.Td>
         <Badge color={colorEstado[r.estado] ?? 'gray'} variant="light">
@@ -174,12 +174,12 @@ export default function Remitos() {
           <Table striped highlightOnHover>
             <Table.Thead>
               <Table.Tr>
+                <Table.Th>Fecha</Table.Th>
                 <Table.Th>PDV / Nº</Table.Th>
                 <Table.Th>Cliente</Table.Th>
                 <Table.Th>Predio</Table.Th>
                 <Table.Th>Especie / Producto</Table.Th>
                 <Table.Th>Toneladas</Table.Th>
-                <Table.Th>Fecha</Table.Th>
                 <Table.Th>Estado</Table.Th>
                 <Table.Th>Acciones</Table.Th>
               </Table.Tr>
