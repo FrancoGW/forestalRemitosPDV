@@ -10,10 +10,10 @@ const dbConfig = {
 
 const pool = new Pool({
   ...dbConfig,
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis:       3000,   // Cierra conexiones inactivas en 3s
-  max:                     2,      // Máximo 2 conexiones simultáneas
-  min:                     0,      // No mantener conexiones abiertas en reposo
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis:       500,    // Libera conexiones inactivas en 500ms
+  max:                     1,      // Máximo 1 conexión simultánea
+  min:                     0,
   allowExitOnIdle:         true,
 });
 
@@ -23,13 +23,13 @@ async function initDB() {
   try {
     await client.connect();
 
-    // Matar conexiones idle zombie de deploys anteriores
+    // Matar TODAS las conexiones idle/colgadas de deploys anteriores
     await client.query(`
       SELECT pg_terminate_backend(pid)
       FROM pg_stat_activity
       WHERE datname = current_database()
         AND pid <> pg_backend_pid()
-        AND state = 'idle'
+        AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
     `);
 
     await client.query(`

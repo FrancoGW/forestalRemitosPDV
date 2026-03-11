@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { initDB } = require('./db');
+const { initDB, pool } = require('./db');
 
 const authRoutes        = require('./routes/auth');
 const pdvRoutes         = require('./routes/pdv');
@@ -32,22 +32,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function limpiarConexionesZombie() {
   try {
-    await pool.query(`
+    const { rows } = await pool.query(`
       SELECT pg_terminate_backend(pid)
       FROM pg_stat_activity
       WHERE datname = current_database()
         AND pid <> pg_backend_pid()
         AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
-        AND state_change < NOW() - INTERVAL '1 minute'
     `);
-  } catch (_) { /* silencioso */ }
+    if (rows.length) console.log(`[DB] Limpié ${rows.length} conexiones zombie`);
+  } catch (e) {
+    console.warn('[DB] limpiarConexionesZombie falló:', e.message);
+  }
 }
 
 async function startServer() {
-  // Levantar el servidor primero para que Railway no lo mate por health check
   app.listen(PORT, () => {
     console.log(`[Server] Corriendo en http://localhost:${PORT}`);
   });
+
+  // Limpiar inmediatamente al arrancar, antes de intentar initDB
+  await limpiarConexionesZombie();
 
   // Reintentar initDB con backoff exponencial hasta que la DB esté disponible
   let intentos = 0;
@@ -57,15 +61,29 @@ async function startServer() {
       break;
     } catch (err) {
       intentos++;
-      const espera = Math.min(5000 * intentos, 60000);
+      // Si es "too many clients", limpiar antes de reintentar
+      if (err.message.includes('too many clients')) {
+        await limpiarConexionesZombie();
+      }
+      const espera = Math.min(5000 * intentos, 30000);
       console.error(`[DB] Error en initDB (intento ${intentos}): ${err.message}`);
       console.log(`[DB] Reintentando en ${espera / 1000}s...`);
       await sleep(espera);
     }
   }
 
-  // Limpiar conexiones zombie cada 2 minutos
-  setInterval(limpiarConexionesZombie, 2 * 60 * 1000);
+  // Limpiar conexiones zombie cada minuto
+  setInterval(limpiarConexionesZombie, 60 * 1000);
 }
 
 startServer();
+
+// Cierre limpio del pool al reiniciar (nodemon envía SIGUSR2, Railway/Ctrl+C usan SIGTERM/SIGINT)
+async function shutdown(signal) {
+  console.log(`[Server] ${signal} — cerrando pool...`);
+  try { await pool.end(); } catch (_) {}
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGUSR2', () => shutdown('SIGUSR2'));
