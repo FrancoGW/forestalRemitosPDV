@@ -11,10 +11,20 @@ const dbConfig = {
 const pool = new Pool({
   ...dbConfig,
   connectionTimeoutMillis: 5000,
-  idleTimeoutMillis:       500,    // Libera conexiones inactivas en 500ms
-  max:                     1,      // Máximo 1 conexión simultánea
+  idleTimeoutMillis:       500,
+  max:                     1,
   min:                     0,
   allowExitOnIdle:         true,
+});
+
+// Evita que conexiones terminadas externamente (pg_terminate_backend) crasheen el proceso
+pool.on('error', (err) => {
+  if (err.code === '57P01') {
+    // La conexión idle fue terminada por pg_terminate_backend — el pool reconecta solo
+    console.warn('[Pool] Conexión idle terminada externamente, reconectando...');
+  } else {
+    console.error('[Pool] Error inesperado:', err.message);
+  }
 });
 
 async function initDB() {
@@ -22,15 +32,6 @@ async function initDB() {
   const client = new Client(dbConfig);
   try {
     await client.connect();
-
-    // Matar TODAS las conexiones idle/colgadas de deploys anteriores
-    await client.query(`
-      SELECT pg_terminate_backend(pid)
-      FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND pid <> pg_backend_pid()
-        AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
-    `);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS app_usuario_pdv (
@@ -83,4 +84,4 @@ async function initDB() {
   }
 }
 
-module.exports = { pool, initDB };
+module.exports = { pool, initDB, dbConfig };

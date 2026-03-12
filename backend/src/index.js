@@ -27,33 +27,13 @@ app.use('/api/admin',       adminRoutes);
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3001;
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function limpiarConexionesZombie() {
-  try {
-    const { rows } = await pool.query(`
-      SELECT pg_terminate_backend(pid)
-      FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND pid <> pg_backend_pid()
-        AND state IN ('idle', 'idle in transaction', 'idle in transaction (aborted)')
-    `);
-    if (rows.length) console.log(`[DB] Limpié ${rows.length} conexiones zombie`);
-  } catch (e) {
-    console.warn('[DB] limpiarConexionesZombie falló:', e.message);
-  }
-}
 
 async function startServer() {
   app.listen(PORT, () => {
     console.log(`[Server] Corriendo en http://localhost:${PORT}`);
   });
 
-  // Limpiar inmediatamente al arrancar, antes de intentar initDB
-  await limpiarConexionesZombie();
-
-  // Reintentar initDB con backoff exponencial hasta que la DB esté disponible
   let intentos = 0;
   while (true) {
     try {
@@ -61,19 +41,12 @@ async function startServer() {
       break;
     } catch (err) {
       intentos++;
-      // Si es "too many clients", limpiar antes de reintentar
-      if (err.message.includes('too many clients')) {
-        await limpiarConexionesZombie();
-      }
       const espera = Math.min(5000 * intentos, 30000);
       console.error(`[DB] Error en initDB (intento ${intentos}): ${err.message}`);
       console.log(`[DB] Reintentando en ${espera / 1000}s...`);
       await sleep(espera);
     }
   }
-
-  // Limpiar conexiones zombie cada minuto
-  setInterval(limpiarConexionesZombie, 60 * 1000);
 }
 
 startServer();

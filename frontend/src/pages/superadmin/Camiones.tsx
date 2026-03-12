@@ -190,7 +190,15 @@ export default function Camiones() {
     }
   }, [periodo, rango]);
 
-  useEffect(() => { cargarCamiones(1, busqueda); }, [busqueda]);
+  // Un solo efecto para busqueda: resetea página y carga (evita doble llamada al arrancar)
+  useEffect(() => {
+    if (paginaActual === 1) {
+      cargarCamiones(1, busqueda);
+    } else {
+      setPaginaActual(1); // esto dispara el efecto de paginaActual
+    }
+  }, [busqueda]);
+
   useEffect(() => { cargarCamiones(paginaActual, busqueda); }, [paginaActual]);
   useEffect(() => { cargarStats(); }, [cargarStats]);
 
